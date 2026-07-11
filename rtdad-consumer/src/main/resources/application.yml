@@ -1,0 +1,28 @@
+spring:
+  application:
+    name: rtdad-consumer
+  rabbitmq:
+    host: ${SPRING_RABBITMQ_HOST:localhost}
+    port: ${SPRING_RABBITMQ_PORT:5672}
+    username: ${SPRING_RABBITMQ_USERNAME:dev}
+    password: ${SPRING_RABBITMQ_PASSWORD:dev}
+  # Jackson 3 (Spring Boot 4) writes java.time as ISO-8601 by default
+  # (DateTimeFeature.WRITE_DATES_AS_TIMESTAMPS defaults to false), so no config is needed.
+
+rtdad:
+  window:
+    min-samples: ${RTDAD_WINDOW_MIN_SAMPLES:50}
+    max-samples: ${RTDAD_WINDOW_MAX_SAMPLES:100}
+  detector:
+    z-threshold: ${RTDAD_DETECTOR_Z_THRESHOLD:3.0}
+    regime-shift-run-fraction: ${RTDAD_DETECTOR_REGIME_SHIFT_RUN_FRACTION:0.10}
+  amqp:
+    inbound-queue: ${RTDAD_AMQP_INBOUND_QUEUE:rtdad_metrics_inbound}
+    dlq: ${RTDAD_AMQP_DLQ:rtdad_metrics_inbound_dlq}
+    metrics-exchange: ${RTDAD_AMQP_METRICS_EXCHANGE:rtdad.metrics}
+    dlx: ${RTDAD_AMQP_DLX:rtdad.metrics.dlx}
+    anomalies-exchange: ${RTDAD_AMQP_ANOMALIES_EXCHANGE:rtdad_anomalies_outbound}
+
+logging:
+  level:
+    com.company.rtdad: INFO
