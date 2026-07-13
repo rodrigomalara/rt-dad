@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: rtdad-config
+data:
+  SPRING_RABBITMQ_HOST: {{ .Values.rabbitmq.host | quote }}
+  SPRING_RABBITMQ_PORT: {{ .Values.rabbitmq.port | quote }}
+  RTDAD_WINDOW_MIN_SAMPLES: {{ .Values.rtdad.window.minSamples | quote }}
+  RTDAD_WINDOW_MAX_SAMPLES: {{ .Values.rtdad.window.maxSamples | quote }}
+  RTDAD_DETECTOR_Z_THRESHOLD: {{ .Values.rtdad.detector.zThreshold | quote }}
+  RTDAD_AMQP_INBOUND_QUEUE: {{ .Values.rtdad.amqp.inboundQueue | quote }}
+  RTDAD_AMQP_DLQ: {{ .Values.rtdad.amqp.dlq | quote }}
+  RTDAD_AMQP_METRICS_EXCHANGE: {{ .Values.rtdad.amqp.metricsExchange | quote }}
+  RTDAD_AMQP_DLX: {{ .Values.rtdad.amqp.dlx | quote }}
+  RTDAD_AMQP_ANOMALIES_EXCHANGE: {{ .Values.rtdad.amqp.anomaliesExchange | quote }}

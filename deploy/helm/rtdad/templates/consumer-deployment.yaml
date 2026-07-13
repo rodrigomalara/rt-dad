@@ -1,0 +1,43 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rtdad-consumer
+  labels:
+    app: rtdad-consumer
+spec:
+  replicas: {{ .Values.consumer.replicas }}
+  selector:
+    matchLabels:
+      app: rtdad-consumer
+  template:
+    metadata:
+      labels:
+        app: rtdad-consumer
+    spec:
+      containers:
+        - name: consumer
+          image: "{{ .Values.consumer.image.repository }}@{{ .Values.consumer.image.digest }}"
+          ports:
+            - name: http
+              containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: rtdad-config
+          env:
+{{ include "rtdad.rabbitmqEnv" . | indent 12 }}
+            - name: JAVA_TOOL_OPTIONS
+              value: {{ .Values.consumer.javaOpts | quote }}
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: http
+            initialDelaySeconds: 40
+            periodSeconds: 20
+          resources:
+{{ toYaml .Values.consumer.resources | indent 12 }}

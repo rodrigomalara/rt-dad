@@ -1,0 +1,30 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rtdad-producer
+  labels:
+    app: rtdad-producer
+spec:
+  replicas: {{ .Values.producer.replicas }}
+  selector:
+    matchLabels:
+      app: rtdad-producer
+  template:
+    metadata:
+      labels:
+        app: rtdad-producer
+    spec:
+      containers:
+        - name: producer
+          image: "{{ .Values.producer.image.repository }}@{{ .Values.producer.image.digest }}"
+          args:
+{{ toYaml .Values.producer.args | indent 12 }}
+          envFrom:
+            - configMapRef:
+                name: rtdad-config
+          env:
+{{ include "rtdad.rabbitmqEnv" . | indent 12 }}
+            - name: JAVA_TOOL_OPTIONS
+              value: {{ .Values.producer.javaOpts | quote }}
+          resources:
+{{ toYaml .Values.producer.resources | indent 12 }}

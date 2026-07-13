@@ -19,15 +19,12 @@ public class RtdadProperties {
     public static class Window {
         private int minSamples = 50;
         private int maxSamples = 100;
-
     }
 
     @Setter
     @Getter
     public static class Detector {
         private double zThreshold = 3.0;
-        private double regimeShiftRunFraction = 0.10;
-
     }
 
     @Setter
@@ -38,6 +35,5 @@ public class RtdadProperties {
         private String metricsExchange = "rtdad.metrics";
         private String dlx = "rtdad.metrics.dlx";
         private String anomaliesExchange = "rtdad_anomalies_outbound";
-
     }
 }

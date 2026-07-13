@@ -60,6 +60,8 @@ services:
     # per-key routing, or an external shared-state store (e.g. Redis) for
     # the window -- neither is implemented (YAGNI). See README.
     restart: unless-stopped
+    ports:
+      - "8080:8080"
 
   prometheus:
     image: prom/prometheus:v3.13.0

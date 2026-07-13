@@ -23,7 +23,7 @@ class AnomalyDetectorTest {
 
     @Test
     void aboveThresholdIsAnomaly() {
-        AnomalyDetector detector = new AnomalyDetector(3.0, 0.10);
+        AnomalyDetector detector = new AnomalyDetector(3.0);
         RollingWindow window = new RollingWindow(100, 50);
         for (int i = 0; i < 50; i++) {
             window.add(100);
@@ -47,7 +47,7 @@ class AnomalyDetectorTest {
 
     @Test
     void belowThresholdIsOk() {
-        AnomalyDetector detector = new AnomalyDetector(3.0, 0.10);
+        AnomalyDetector detector = new AnomalyDetector(3.0);
         RollingWindow window = new RollingWindow(100, 50);
         double[] seed = new double[50];
         for (int i = 0; i < 50; i++) {
@@ -66,7 +66,7 @@ class AnomalyDetectorTest {
 
     @Test
     void notWarmIsOkWithNullZScoreAndPointStillAdmitted() {
-        AnomalyDetector detector = new AnomalyDetector(3.0, 0.10);
+        AnomalyDetector detector = new AnomalyDetector(3.0);
         RollingWindow window = new RollingWindow(100, 50);
 
         DetectionResult result = detector.evaluate(point(999999), window);
@@ -78,7 +78,7 @@ class AnomalyDetectorTest {
 
     @Test
     void flatWindowEqualValueIsOkWithZeroZScore() {
-        AnomalyDetector detector = new AnomalyDetector(3.0, 0.10);
+        AnomalyDetector detector = new AnomalyDetector(3.0);
         RollingWindow window = warmWindowOf(100, 50, 100);
 
         DetectionResult result = detector.evaluate(point(100), window);
@@ -89,7 +89,7 @@ class AnomalyDetectorTest {
 
     @Test
     void flatWindowDifferentValueIsAnomalyWithInfiniteZScore() {
-        AnomalyDetector detector = new AnomalyDetector(3.0, 0.10);
+        AnomalyDetector detector = new AnomalyDetector(3.0);
         RollingWindow window = warmWindowOf(100, 50, 100);
 
         DetectionResult result = detector.evaluate(point(500), window);
@@ -100,7 +100,7 @@ class AnomalyDetectorTest {
 
     @Test
     void antiPoisoningKeepsWindowUnchangedAfterConfirmedAnomaly() {
-        AnomalyDetector detector = new AnomalyDetector(3.0, 0.10);
+        AnomalyDetector detector = new AnomalyDetector(3.0);
         RollingWindow window = warmWindowOf(100, 50, 100);
         double meanBefore = window.mean();
         double stddevBefore = window.stddev();
@@ -118,20 +118,20 @@ class AnomalyDetectorTest {
 
     @Test
     void regimeShiftAfterKConsecutiveSameDirectionAnomalies() {
-        AnomalyDetector detector = new AnomalyDetector(3.0, 0.10);
+        AnomalyDetector detector = new AnomalyDetector(3.0);
         RollingWindow window = warmWindowOf(100, 50, 100);
-        // K = max(2, ceil(0.10 * 100)) = 10
+        // K = minSamples = 50
 
-        for (int i = 0; i < 9; i++) {
+        for (int i = 0; i < 49; i++) {
             DetectionResult result = detector.evaluate(point(500), window);
             assertThat(result.status()).isEqualTo(DetectionResult.Status.ANOMALY);
             assertThat(window.mean()).isEqualTo(100.0);
         }
 
-        DetectionResult tenth = detector.evaluate(point(500), window);
-        assertThat(tenth.status()).isEqualTo(DetectionResult.Status.REGIME_SHIFT);
-        // reseed uses the ten buffered 500s: new window is perfectly flat, so z is exactly 0.0
-        assertThat(tenth.zScore()).isEqualTo(0.0);
+        DetectionResult fiftieth = detector.evaluate(point(500), window);
+        assertThat(fiftieth.status()).isEqualTo(DetectionResult.Status.REGIME_SHIFT);
+        // reseed uses the 50 buffered 500s: new window is perfectly flat, so z is exactly 0.0
+        assertThat(fiftieth.zScore()).isEqualTo(0.0);
 
         DetectionResult after = detector.evaluate(point(500), window);
         assertThat(after.status()).isEqualTo(DetectionResult.Status.OK);
@@ -154,7 +154,7 @@ class AnomalyDetectorTest {
         // threshold equal to it. anomaly = z > zThreshold must be false (strict greater-than).
         MetricPoint borderline = point(mean + 3 * stddev);
         double exactZ = Math.abs(borderline.value() - mean) / stddev;
-        AnomalyDetector detector = new AnomalyDetector(exactZ, 0.10);
+        AnomalyDetector detector = new AnomalyDetector(exactZ);
 
         DetectionResult result = detector.evaluate(borderline, window);
         assertThat(result.status()).isEqualTo(DetectionResult.Status.OK);
@@ -163,7 +163,7 @@ class AnomalyDetectorTest {
 
     @Test
     void nonFiniteValueIsDroppedAndWindowUnchanged() {
-        AnomalyDetector detector = new AnomalyDetector(3.0, 0.10);
+        AnomalyDetector detector = new AnomalyDetector(3.0);
         RollingWindow window = warmWindowOf(100, 50, 100);
         double meanBefore = window.mean();
         double stddevBefore = window.stddev();
@@ -182,37 +182,37 @@ class AnomalyDetectorTest {
 
     @Test
     void oppositeSignOutlierMidRunResetsCounter() {
-        AnomalyDetector detector = new AnomalyDetector(3.0, 0.10);
+        AnomalyDetector detector = new AnomalyDetector(3.0);
         RollingWindow window = warmWindowOf(100, 50, 100);
 
-        for (int i = 0; i < 5; i++) {
+        for (int i = 0; i < 25; i++) {
             detector.evaluate(point(500), window);
         }
         // opposite sign resets the run
         DetectionResult reset = detector.evaluate(point(-500), window);
         assertThat(reset.status()).isEqualTo(DetectionResult.Status.ANOMALY);
 
-        // now needs a fresh run of K same-direction (negative) anomalies; 8 more (total 9) still
+        // now needs a fresh run of K same-direction (negative) anomalies; 48 more (total 49) still
         // ANOMALY
-        for (int i = 0; i < 8; i++) {
+        for (int i = 0; i < 48; i++) {
             DetectionResult result = detector.evaluate(point(-500), window);
             assertThat(result.status()).isEqualTo(DetectionResult.Status.ANOMALY);
         }
-        DetectionResult tenth = detector.evaluate(point(-500), window);
-        assertThat(tenth.status()).isEqualTo(DetectionResult.Status.REGIME_SHIFT);
+        DetectionResult fiftieth = detector.evaluate(point(-500), window);
+        assertThat(fiftieth.status()).isEqualTo(DetectionResult.Status.REGIME_SHIFT);
     }
 
     @Test
-    void kDerivesFromCeilOfFractionTimesMaxSamples() {
-        AnomalyDetector detector = new AnomalyDetector(3.0, 0.10);
+    void kDerivesFromMinSamples() {
+        AnomalyDetector detector = new AnomalyDetector(3.0);
         RollingWindow window = warmWindowOf(100, 25, 50);
-        // K = max(2, ceil(0.10 * 50)) = 5
+        // K = minSamples = 25
 
-        for (int i = 0; i < 4; i++) {
+        for (int i = 0; i < 24; i++) {
             DetectionResult result = detector.evaluate(point(500), window);
             assertThat(result.status()).isEqualTo(DetectionResult.Status.ANOMALY);
         }
-        DetectionResult fifth = detector.evaluate(point(500), window);
-        assertThat(fifth.status()).isEqualTo(DetectionResult.Status.REGIME_SHIFT);
+        DetectionResult twentyFifth = detector.evaluate(point(500), window);
+        assertThat(twentyFifth.status()).isEqualTo(DetectionResult.Status.REGIME_SHIFT);
     }
 }

@@ -6,6 +6,7 @@ import com.company.rtdad.consumer.domain.AnomalyDetector;
 import com.company.rtdad.consumer.domain.DetectionLogger;
 import com.company.rtdad.consumer.domain.DetectionResult;
 import com.company.rtdad.consumer.domain.RollingWindow;
+import com.company.rtdad.consumer.observability.DetectorMetrics;
 import java.nio.charset.StandardCharsets;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -44,7 +45,12 @@ public class ConsumerIntegrationConfig {
                 QueueBuilder.durable(amqp.getInboundQueue())
                         .withArgument("x-dead-letter-exchange", amqp.getDlx())
                         .build();
-        Queue dlq = QueueBuilder.durable(amqp.getDlq()).build();
+        Queue dlq =
+                QueueBuilder.durable(amqp.getDlq())
+                        .withArgument("x-max-length", 10000)
+                        .withArgument("x-overflow", "drop-head")
+                        .withArgument("x-message-ttl", 604800000) // 7 days in ms
+                        .build();
         Binding inboundBinding =
                 BindingBuilder.bind(inboundQueue).to(metricsExchange).with(amqp.getInboundQueue());
         Binding dlqBinding = BindingBuilder.bind(dlq).to(dlx).with(amqp.getInboundQueue());
@@ -69,9 +75,7 @@ public class ConsumerIntegrationConfig {
 
     @Bean
     public AnomalyDetector anomalyDetector(RtdadProperties properties) {
-        return new AnomalyDetector(
-                properties.getDetector().getZThreshold(),
-                properties.getDetector().getRegimeShiftRunFraction());
+        return new AnomalyDetector(properties.getDetector().getZThreshold());
     }
 
     @Bean
@@ -97,7 +101,8 @@ public class ConsumerIntegrationConfig {
             RollingWindow window,
             AnomalyDetector detector,
             DetectionLogger logger,
-            JacksonJsonObjectMapper jsonObjectMapper) {
+            JacksonJsonObjectMapper jsonObjectMapper,
+            DetectorMetrics detectorMetrics) {
         // Concurrency is pinned at 1 by design, NOT a throughput default to be tuned up.
         // AnomalyDetector and RollingWindow are single-threaded and mutate shared window state per
         // message; correct detection depends on strict in-order, serial processing. Raising this,
@@ -114,7 +119,15 @@ public class ConsumerIntegrationConfig {
                 .transform(new JsonToObjectTransformer(MetricPoint.class, jsonObjectMapper))
                 .handle(
                         MetricPoint.class,
-                        (point, _) -> detector.evaluate(point, window))
+                        (point, _) ->
+                                detectorMetrics.timeEvaluation(
+                                        () -> detector.evaluate(point, window)))
+                .handle(
+                        DetectionResult.class,
+                        (result, _) -> {
+                            detectorMetrics.record(result);
+                            return result;
+                        })
                 .handle(
                         DetectionResult.class,
                         (result, _) -> {
@@ -123,7 +136,8 @@ public class ConsumerIntegrationConfig {
                         })
                 .filter(
                         DetectionResult.class,
-                        result -> result.status() == DetectionResult.Status.ANOMALY)
+                        result -> result.status() == DetectionResult.Status.ANOMALY,
+                        f -> f.discardChannel("nullChannel"))
                 .transform(
                         DetectionResult.class,
                         result ->
@@ -140,16 +154,20 @@ public class ConsumerIntegrationConfig {
 
     @Bean
     public IntegrationFlow deadLetterFlow(
-            ConnectionFactory connectionFactory, RtdadProperties properties) {
+            ConnectionFactory connectionFactory,
+            RtdadProperties properties,
+            DetectorMetrics detectorMetrics) {
         return IntegrationFlow.from(
                         Amqp.inboundAdapter(connectionFactory, properties.getAmqp().getDlq())
                                 .messageConverter(new SimpleMessageConverter())
-                                .configureContainer(c -> c.concurrentConsumers(1))
+                                .configureContainer(
+                                        c -> c.concurrentConsumers(1).defaultRequeueRejected(false))
                                 .id("deadLetterInboundAdapter"))
                 .handle(
                         byte[].class,
                         (payload, headers) -> {
                             logDeadLetter(payload, headers);
+                            detectorMetrics.recordDeadLetter();
                             return null;
                         })
                 .get();

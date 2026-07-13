@@ -3,12 +3,6 @@ global:
   evaluation_interval: 5s
 
 scrape_configs:
-  - job_name: rtdad-producer
-    metrics_path: /actuator/prometheus
-    static_configs:
-      - targets:
-          - producer:8080
-
   - job_name: rtdad-consumer
     metrics_path: /actuator/prometheus
     static_configs:

@@ -57,6 +57,10 @@ public class RollingWindow {
         return maxSamples;
     }
 
+    public int minSamples() {
+        return minSamples;
+    }
+
     public boolean isWarm() {
         return size >= minSamples;
     }

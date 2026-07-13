@@ -90,8 +90,8 @@ All settings are overridable via environment variables (see
 ## Observe
 
 - Consumer stdout: one line per data point (see log format below).
-- Prometheus targets (`localhost:9090/targets`): verify that the producer and
-  consumer Actuator endpoints are being scraped.
+- Prometheus targets (`localhost:9090/targets`): verify that the consumer
+  Actuator endpoint is being scraped.
 - Grafana (`localhost:3000`, `dev`/`dev`): open **Explore**, select the
   preconfigured Prometheus data source, and query `up` or any emitted metric.
 - RabbitMQ management UI (`localhost:15672`, `dev`/`dev`): inspect

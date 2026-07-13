@@ -15,7 +15,6 @@ public class AnomalyDetector {
     private static final Logger LOG = LoggerFactory.getLogger(AnomalyDetector.class);
 
     private final double zThreshold;
-    private final double regimeShiftRunFraction;
 
     // Run state for regime-shift detection. A "run" is a streak of consecutive anomalies all on
     // the same side of the mean. runSign (+1/-1) is that side; runBuffer holds the run's raw values
@@ -24,9 +23,8 @@ public class AnomalyDetector {
     private int runSign;
     private final Deque<Double> runBuffer = new ArrayDeque<>();
 
-    public AnomalyDetector(double zThreshold, double regimeShiftRunFraction) {
+    public AnomalyDetector(double zThreshold) {
         this.zThreshold = zThreshold;
-        this.regimeShiftRunFraction = regimeShiftRunFraction;
     }
 
     public DetectionResult evaluate(MetricPoint point, RollingWindow window) {
@@ -92,9 +90,9 @@ public class AnomalyDetector {
         }
         runBuffer.addLast(value);
 
-        // Trigger threshold scales with window size but is floored at 2, so a single isolated spike
-        // can never be mistaken for a regime shift, even with a tiny window or fraction.
-        int k = Math.max(2, (int) Math.ceil(regimeShiftRunFraction * window.maxSamples()));
+        // Trigger threshold is the full min-samples requirement to ensure the detector doesn't go
+        // cold.
+        int k = window.minSamples();
 
         if (consecutiveAnomalies >= k) {
             // Rebase the window onto just the run's values so the new level becomes the baseline,
