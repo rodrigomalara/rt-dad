@@ -59,6 +59,8 @@ public record ProducerArgs(
 
     private static double doubleOption(ApplicationArguments args, String name, double fallback) {
         List<String> values = args.getOptionValues(name);
-        return values == null || values.isEmpty() ? fallback : Double.parseDouble(values.getFirst());
+        return values == null || values.isEmpty()
+                ? fallback
+                : Double.parseDouble(values.getFirst());
     }
 }
