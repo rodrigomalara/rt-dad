@@ -47,13 +47,23 @@ jobs:
           aws-region: ${{ vars.AWS_REGION }}
 
       # All inputs are low-sensitivity; generate tfvars from Actions Variables
-      # rather than committing a real staging.tfvars.
+      # rather than committing a real staging.tfvars. Values pass through env
+      # (never ${{ }} inside run:) to avoid shell/expression injection, and the
+      # step fails loud if a required variable is unset instead of emitting
+      # invalid HCL.
       - name: Generate tfvars
+        env:
+          AWS_REGION: ${{ vars.AWS_REGION }}
+          WHITELIST_CIDRS: ${{ vars.WHITELIST_CIDRS }}
+          OIDC_PROVIDER_ARN: ${{ vars.OIDC_PROVIDER_ARN }}
         run: |
+          : "${AWS_REGION:?set repo variable AWS_REGION}"
+          : "${WHITELIST_CIDRS:?set repo variable WHITELIST_CIDRS (HCL list, e.g. [\"203.0.113.10/32\"])}"
+          : "${OIDC_PROVIDER_ARN:?set repo variable OIDC_PROVIDER_ARN}"
           cat > staging.tfvars <<EOF
-          region            = "${{ vars.AWS_REGION }}"
-          whitelist_cidrs   = ${{ vars.WHITELIST_CIDRS }}
-          oidc_provider_arn = "${{ vars.OIDC_PROVIDER_ARN }}"
+          region            = "$AWS_REGION"
+          whitelist_cidrs   = $WHITELIST_CIDRS
+          oidc_provider_arn = "$OIDC_PROVIDER_ARN"
           EOF
 
       - name: Init
