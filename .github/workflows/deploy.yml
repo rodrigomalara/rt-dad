@@ -4,8 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       selector:
-        description: "Image tag to deploy (e.g. v1.2.3 or sha-abc1234)"
-        required: true
+        description: "Image tag to deploy — leave blank to deploy the newest image in ECR (e.g. v1.2.3 or sha-abc1234)"
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -33,12 +34,19 @@ jobs:
         run: |
           SEL="${{ inputs.selector }}"
           for svc in producer consumer; do
-            d=$(aws ecr describe-images --repository-name "rtdad-${svc}" \
-              --image-ids imageTag="${SEL}" \
-              --query 'imageDetails[0].imageDigest' --output text)
-            if [ "$d" = "None" ] || [ -z "$d" ]; then
-              echo "no image rtdad-${svc}:${SEL}"; exit 1
+            if [ -n "$SEL" ]; then
+              d=$(aws ecr describe-images --repository-name "rtdad-${svc}" \
+                --image-ids imageTag="${SEL}" \
+                --query 'imageDetails[0].imageDigest' --output text)
+            else
+              # blank selector → newest image by push time
+              d=$(aws ecr describe-images --repository-name "rtdad-${svc}" \
+                --query 'sort_by(imageDetails,&imagePushedAt)[-1].imageDigest' --output text)
             fi
+            if [ "$d" = "None" ] || [ -z "$d" ]; then
+              echo "no image rtdad-${svc}:${SEL:-<latest>}"; exit 1
+            fi
+            echo "resolved rtdad-${svc} ${SEL:-<latest>} -> ${d}"
             echo "${svc}=${d}" >> "$GITHUB_OUTPUT"
           done
 
@@ -50,6 +58,7 @@ jobs:
       - name: Helm upgrade
         run: |
           helm upgrade --install rtdad deploy/helm/rtdad \
+            --namespace rtdad --create-namespace \
             -f deploy/helm/rtdad/values-staging.yaml \
             --set consumer.image.digest=${{ steps.dig.outputs.consumer }} \
             --set producer.image.digest=${{ steps.dig.outputs.producer }} \
@@ -57,12 +66,12 @@ jobs:
 
       - name: Rollout status
         run: |
-          kubectl rollout status deploy/rtdad-consumer --timeout=180s
-          kubectl rollout status deploy/rtdad-producer --timeout=180s
+          kubectl -n rtdad rollout status deploy/rtdad-consumer --timeout=180s
+          kubectl -n rtdad rollout status deploy/rtdad-producer --timeout=180s
 
       - name: Post-deploy actuator checks (port-forward)
         run: |
-          kubectl port-forward svc/rtdad-consumer 18080:8080 &
+          kubectl -n rtdad port-forward svc/rtdad-consumer 18080:8080 &
           PF=$!; trap 'kill $PF' EXIT
           # shellcheck disable=SC2034
           for i in $(seq 1 30); do curl -sf localhost:18080/actuator/prometheus >/dev/null && break; sleep 2; done

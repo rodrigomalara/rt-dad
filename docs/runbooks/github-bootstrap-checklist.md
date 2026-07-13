@@ -65,9 +65,15 @@ Settings → **Secrets and variables → Actions → Variables**. Use
 Repo-level:
 
 - [ ] `AWS_REGION` = `<REGION>`
-- [ ] `TF_STATE_BUCKET` = `rt-dad-tfstate-<ACCOUNT_ID>`
-- [ ] `PLAN_ROLE_ARN` = read-only role ARN (`terraform output`)
+- [ ] `TF_STATE_BUCKET` = state bucket name — pinned in `scripts/.env` (carries a
+      region + deployment suffix, e.g. `rt-dad-tfstate-<ACCOUNT_ID>-<REGION>-<suffix>`,
+      not the bare account-id formula)
+- [ ] `PLAN_ROLE_ARN` = read-only role ARN (`terraform output ci_plan_role_arn`)
 - [ ] `PUBLISH_ROLE_ARN` = CI publish role ARN (`terraform output ci_publish_role_arn`)
+- [ ] `WHITELIST_CIDRS` = source CIDRs allowed to reach NodePorts / admin
+      surfaces — HCL list literal, e.g. `["203.0.113.10/32"]` (from `scripts/.env`)
+- [ ] `OIDC_PROVIDER_ARN` = GitHub Actions OIDC provider ARN (env-independent,
+      one per account: `arn:aws:iam::<ACCOUNT_ID>:oidc-provider/token.actions.githubusercontent.com`)
 
 Environment-scoped (`staging` / `production`):
 

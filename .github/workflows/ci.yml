@@ -1,16 +1,12 @@
 name: ci
 
+# No paths: filter on pull_request — this job is a REQUIRED status check, so it
+# must always run and report. Path filtering would skip the workflow on PRs that
+# don't touch these files, leaving the required check "Expected — Waiting…"
+# forever. Instead the build-test job always runs and gates its heavy steps on a
+# paths-filter result (see the "Detect app changes"/"Gate" steps below).
 on:
   pull_request:
-    paths:
-      - "rtdad-*/**"
-      - "pom.xml"
-      - ".mvn/**"
-      - "mvnw"
-      - "docker-compose.yml"
-      - "docker-compose.ci.yml"
-      - "deploy/helm/**"
-      - ".github/workflows/ci.yml"
   push:
     branches: [main]
 
@@ -23,20 +19,58 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # On PRs, detect whether any app-relevant file changed. On push we always
+      # build (the publish job consumes this job's image tarballs), so this step
+      # is PR-only and its result is ignored for push.
+      - name: Detect app changes
+        if: github.event_name == 'pull_request'
+        id: changes
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            app:
+              - 'rtdad-*/**'
+              - 'pom.xml'
+              - '.mvn/**'
+              - 'mvnw'
+              - 'docker-compose.yml'
+              - 'docker-compose.ci.yml'
+              - 'deploy/helm/**'
+              # NB: '.github/workflows/ci.yml' intentionally NOT here — editing the
+              # workflow alone should not trigger a full build. It still runs fully
+              # on push to main (gate is push-OR-app), so a broken change is caught
+              # at merge before publish.
+
+      # Single source of truth for the guards below: run the heavy build/test on
+      # every push, and on PRs only when app files changed. A workflow/docs-only
+      # PR skips the heavy steps and reports build-test green in seconds.
+      - name: Gate
+        id: gate
+        run: |
+          if [ "${{ github.event_name }}" = "push" ] || [ "${{ steps.changes.outputs.app }}" = "true" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "no app changes in this PR — skipping build; build-test reports green"
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: actions/setup-java@v4
+        if: steps.gate.outputs.run == 'true'
         with:
           distribution: temurin
           java-version: "25"
           cache: maven
 
       - name: Spotless check
+        if: steps.gate.outputs.run == 'true'
         run: ./mvnw -B spotless:check
 
       - name: Verify (tests + static analysis)
+        if: steps.gate.outputs.run == 'true'
         run: ./mvnw -B verify
 
       - name: Upload reports
-        if: always()
+        if: always() && steps.gate.outputs.run == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: build-reports
@@ -47,9 +81,11 @@ jobs:
           if-no-files-found: ignore
 
       - name: Validate Compose topology
+        if: steps.gate.outputs.run == 'true'
         run: docker compose config
 
       - name: Build images (once) with CI tags
+        if: steps.gate.outputs.run == 'true'
         run: |
           docker buildx build --load -t rtdad-producer:ci -f rtdad-producer/Dockerfile .
           docker buildx build --load -t rtdad-consumer:ci -f rtdad-consumer/Dockerfile .
@@ -71,6 +107,7 @@ jobs:
           retention-days: 1
 
       - name: Compose smoke test
+        if: steps.gate.outputs.run == 'true'
         run: ./scripts/ci-smoke.sh
 
   publish:
@@ -80,6 +117,7 @@ jobs:
     permissions:
       contents: read
       id-token: write
+      security-events: write
     env:
       ECR_REGISTRY: 007374813645.dkr.ecr.us-west-2.amazonaws.com
     steps:
@@ -125,6 +163,22 @@ jobs:
               -o sarif > "${svc}.grype.sarif" || echo "grype failed for ${svc} (non-blocking)"
           done
         continue-on-error: true
+
+      - name: Publish Grype findings to Code Scanning (non-blocking)
+        if: always()
+        continue-on-error: true
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: producer.grype.sarif
+          category: grype-producer
+
+      - name: Publish Grype findings to Code Scanning (consumer, non-blocking)
+        if: always()
+        continue-on-error: true
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: consumer.grype.sarif
+          category: grype-consumer
 
       - name: Upload SBOM/scan artifacts
         if: always()

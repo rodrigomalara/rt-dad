@@ -113,7 +113,7 @@ checks_json=$(printf '%s\n' "${STATUS_CHECKS[@]}" \
 jq -n --argjson checks "$checks_json" '{
   required_status_checks:       { strict: true, checks: $checks },
   enforce_admins:               true,
-  required_pull_request_reviews:{ required_approving_review_count: 1 },
+  required_pull_request_reviews:null,
   required_linear_history:      true,
   restrictions:                 null,
   allow_force_pushes:           false,

@@ -1,10 +1,11 @@
 name: infra
 
+# No paths: filter — the plan job is a REQUIRED status check, so it must always
+# run and report (a path-filtered skip leaves the required check waiting
+# forever). The job always runs; its terraform steps are gated on a paths-filter
+# result so a PR that doesn't touch infra/ reports green without a real plan.
 on:
   pull_request:
-    paths:
-      - "infra/**"
-      - ".github/workflows/infra.yml"
 
 permissions:
   contents: read
@@ -20,14 +21,30 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Gate: only run the real terraform work when infra files changed. On a PR
+      # that doesn't touch infra/, every step below is skipped and the plan job
+      # still reports green — satisfying branch protection without a plan.
+      - name: Detect infra changes
+        id: changes
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            infra:
+              - 'infra/**'
+              # NB: '.github/workflows/infra.yml' intentionally NOT here — editing
+              # the workflow alone should not trigger a real plan (AWS round-trip).
+
       - uses: hashicorp/setup-terraform@v3
+        if: steps.changes.outputs.infra == 'true'
         with:
           terraform_version: 1.10.5
 
       - name: Format check
+        if: steps.changes.outputs.infra == 'true'
         run: terraform -chdir=../.. fmt -check -recursive
 
       - name: Setup tflint
+        if: steps.changes.outputs.infra == 'true'
         uses: terraform-linters/setup-tflint@v4
         with:
           tflint_version: v0.53.0
@@ -35,12 +52,14 @@ jobs:
       # tflint config lives at infra/.tflint.hcl; pass it explicitly so the AWS
       # ruleset is active when linting the envs/staging root module.
       - name: tflint
+        if: steps.changes.outputs.infra == 'true'
         working-directory: infra
         run: |
           tflint --init
           tflint --config="$PWD/.tflint.hcl" --chdir=envs/staging
 
       - name: Configure AWS creds (read-only plan role)
+        if: steps.changes.outputs.infra == 'true'
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ vars.PLAN_ROLE_ARN }}
@@ -52,6 +71,7 @@ jobs:
       # step fails loud if a required variable is unset instead of emitting
       # invalid HCL.
       - name: Generate tfvars
+        if: steps.changes.outputs.infra == 'true'
         env:
           AWS_REGION: ${{ vars.AWS_REGION }}
           WHITELIST_CIDRS: ${{ vars.WHITELIST_CIDRS }}
@@ -67,12 +87,14 @@ jobs:
           EOF
 
       - name: Init
+        if: steps.changes.outputs.infra == 'true'
         run: |
           terraform init \
             -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" \
             -backend-config="region=${{ vars.AWS_REGION }}"
 
       - name: Validate
+        if: steps.changes.outputs.infra == 'true'
         run: terraform validate
 
       # -lock=false: the read-only plan role cannot write the S3 state lock, and
@@ -84,4 +106,5 @@ jobs:
       # plan role). This PR gate validates config diffs against last state; drift
       # detection is left to apply, which runs with cluster access and full perms.
       - name: Plan (read-only)
+        if: steps.changes.outputs.infra == 'true'
         run: terraform plan -input=false -lock=false -refresh=false -var-file=staging.tfvars -no-color
