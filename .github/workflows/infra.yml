@@ -31,7 +31,8 @@ jobs:
           filters: |
             infra:
               - 'infra/**'
-              - '.github/workflows/infra.yml'
+              # NB: '.github/workflows/infra.yml' intentionally NOT here — editing
+              # the workflow alone should not trigger a real plan (AWS round-trip).
 
       - uses: hashicorp/setup-terraform@v3
         if: steps.changes.outputs.infra == 'true'

@@ -36,7 +36,10 @@ jobs:
               - 'docker-compose.yml'
               - 'docker-compose.ci.yml'
               - 'deploy/helm/**'
-              - '.github/workflows/ci.yml'
+              # NB: '.github/workflows/ci.yml' intentionally NOT here — editing the
+              # workflow alone should not trigger a full build. It still runs fully
+              # on push to main (gate is push-OR-app), so a broken change is caught
+              # at merge before publish.
 
       # Single source of truth for the guards below: run the heavy build/test on
       # every push, and on PRs only when app files changed. A workflow/docs-only
@@ -114,6 +117,7 @@ jobs:
     permissions:
       contents: read
       id-token: write
+      security-events: write
     env:
       ECR_REGISTRY: 007374813645.dkr.ecr.us-west-2.amazonaws.com
     steps:
@@ -159,6 +163,22 @@ jobs:
               -o sarif > "${svc}.grype.sarif" || echo "grype failed for ${svc} (non-blocking)"
           done
         continue-on-error: true
+
+      - name: Publish Grype findings to Code Scanning (non-blocking)
+        if: always()
+        continue-on-error: true
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: producer.grype.sarif
+          category: grype-producer
+
+      - name: Publish Grype findings to Code Scanning (consumer, non-blocking)
+        if: always()
+        continue-on-error: true
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: consumer.grype.sarif
+          category: grype-consumer
 
       - name: Upload SBOM/scan artifacts
         if: always()
