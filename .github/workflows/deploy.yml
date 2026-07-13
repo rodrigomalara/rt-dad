@@ -1,0 +1,72 @@
+name: deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      selector:
+        description: "Image tag to deploy (e.g. v1.2.3 or sha-abc1234)"
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: staging
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      ECR_REGISTRY: 007374813645.dkr.ecr.us-west-2.amazonaws.com
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (deploy role)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Resolve per-image digests
+        id: dig
+        run: |
+          SEL="${{ inputs.selector }}"
+          for svc in producer consumer; do
+            d=$(aws ecr describe-images --repository-name "rtdad-${svc}" \
+              --image-ids imageTag="${SEL}" \
+              --query 'imageDetails[0].imageDigest' --output text)
+            if [ "$d" = "None" ] || [ -z "$d" ]; then
+              echo "no image rtdad-${svc}:${SEL}"; exit 1
+            fi
+            echo "${svc}=${d}" >> "$GITHUB_OUTPUT"
+          done
+
+      - name: Update kubeconfig
+        run: aws eks update-kubeconfig --name ${{ vars.EKS_CLUSTER_NAME }}
+
+      - uses: azure/setup-helm@v4
+
+      - name: Helm upgrade
+        run: |
+          helm upgrade --install rtdad deploy/helm/rtdad \
+            -f deploy/helm/rtdad/values-staging.yaml \
+            --set consumer.image.digest=${{ steps.dig.outputs.consumer }} \
+            --set producer.image.digest=${{ steps.dig.outputs.producer }} \
+            --wait --timeout 5m
+
+      - name: Rollout status
+        run: |
+          kubectl rollout status deploy/rtdad-consumer --timeout=180s
+          kubectl rollout status deploy/rtdad-producer --timeout=180s
+
+      - name: Post-deploy actuator checks (port-forward)
+        run: |
+          kubectl port-forward svc/rtdad-consumer 18080:8080 &
+          PF=$!; trap 'kill $PF' EXIT
+          # shellcheck disable=SC2034
+          for i in $(seq 1 30); do curl -sf localhost:18080/actuator/prometheus >/dev/null && break; sleep 2; done
+          scrape() { curl -sf localhost:18080/actuator/prometheus | awk -v m="$1" '$1 ~ m {v+=$2} END {printf "%d", v+0}'; }
+          dead=$(scrape '^anomaly_detector_dead_letters_total')
+          echo "dead_letters=$dead"
+          [ "$dead" -eq 0 ] || { echo "dead letters present"; exit 1; }

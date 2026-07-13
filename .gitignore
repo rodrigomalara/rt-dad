@@ -51,3 +51,7 @@ crash.log
 scripts/.env
 infra/envs/staging/staging.tfvars
 
+### maven flatten plugin
+.flattened-pom.xml
+**/.flattened-pom.xml
+

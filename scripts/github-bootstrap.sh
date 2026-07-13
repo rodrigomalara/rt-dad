@@ -35,6 +35,10 @@ REPO="${REPO:-rodrigomalara/rt-dad}"
 # --- Static inputs (from .env; fail fast if unset) -------------------------
 : "${AWS_REGION:?set AWS_REGION (scripts/.env)}"
 : "${ACCOUNT_ID:?set ACCOUNT_ID (scripts/.env)}"
+# Source CIDRs allowed to reach NodePorts / admin surfaces. Published verbatim
+# as the WHITELIST_CIDRS Actions Variable and injected UNQUOTED into staging.tfvars,
+# so it must be a valid HCL list literal, e.g. '["203.0.113.10/32"]'.
+: "${WHITELIST_CIDRS:?set WHITELIST_CIDRS (scripts/.env; HCL list, e.g. [\"203.0.113.10/32\"])}"
 
 # Environments to bootstrap. Each must have a terraform env dir at
 # ${INFRA_DIR}/<env>. Override in .env, e.g. ENVIRONMENTS="staging production".
@@ -44,11 +48,16 @@ read -r -a ENVIRONMENTS <<< "${ENVIRONMENTS:-staging}"
 # Status-check contexts required on main. These are GitHub Actions *job* names.
 # infra.yml → job "plan". Add the app CI job name once that workflow lands.
 # Override with e.g. STATUS_CHECKS='plan,CI / build'
-IFS=',' read -r -a STATUS_CHECKS <<< "${STATUS_CHECKS:-plan}"
+IFS=',' read -r -a STATUS_CHECKS <<< "${STATUS_CHECKS:-plan,build-test}"
 
 # All calculated values (bucket, role ARNs, cluster names) are DERIVED here,
 # never stored. Bucket from account id; the rest from `terraform output`.
 TF_STATE_BUCKET="${TF_STATE_BUCKET:-rt-dad-tfstate-${ACCOUNT_ID}}"
+
+# GitHub Actions OIDC provider ARN — env-independent, one per account. The URL
+# host is fixed, so derive from ACCOUNT_ID; override if the provider was created
+# under a different path.
+OIDC_PROVIDER_ARN="${OIDC_PROVIDER_ARN:-arn:aws:iam::${ACCOUNT_ID}:oidc-provider/token.actions.githubusercontent.com}"
 
 # run <cmd...> — execute a MUTATING command, or just print it under DRY_RUN=1.
 # Captures piped/heredoc stdin so payloads are shown (dry) or forwarded (live).
@@ -74,6 +83,9 @@ tf_out() {
 # PLAN_ROLE_ARN is repo-level (read-only, env-independent). Take it from the
 # first environment; override by exporting PLAN_ROLE_ARN before the run.
 PLAN_ROLE_ARN="${PLAN_ROLE_ARN:-$(tf_out "${ENVIRONMENTS[0]}" ci_plan_role_arn)}"
+
+# PUBLISH_ROLE_ARN is repo-level too (trusts main + v* tags, env-independent).
+PUBLISH_ROLE_ARN="${PUBLISH_ROLE_ARN:-$(tf_out "${ENVIRONMENTS[0]}" ci_publish_role_arn)}"
 
 echo ">> Bootstrapping ${REPO}${DRY_RUN:+  (DRY RUN — no changes will be made)}"
 gh auth status >/dev/null
@@ -140,9 +152,12 @@ done
 # Step 4 — Repo-level Actions Variables (no secrets)
 # ---------------------------------------------------------------------------
 echo ">> Step 4: repo-level Variables"
-run gh variable set AWS_REGION      --repo "$REPO" --body "$AWS_REGION"
-run gh variable set TF_STATE_BUCKET --repo "$REPO" --body "$TF_STATE_BUCKET"
-run gh variable set PLAN_ROLE_ARN   --repo "$REPO" --body "$PLAN_ROLE_ARN"
+run gh variable set AWS_REGION        --repo "$REPO" --body "$AWS_REGION"
+run gh variable set TF_STATE_BUCKET   --repo "$REPO" --body "$TF_STATE_BUCKET"
+run gh variable set PLAN_ROLE_ARN     --repo "$REPO" --body "$PLAN_ROLE_ARN"
+run gh variable set PUBLISH_ROLE_ARN  --repo "$REPO" --body "$PUBLISH_ROLE_ARN"
+run gh variable set WHITELIST_CIDRS   --repo "$REPO" --body "$WHITELIST_CIDRS"
+run gh variable set OIDC_PROVIDER_ARN --repo "$REPO" --body "$OIDC_PROVIDER_ARN"
 
 # ---------------------------------------------------------------------------
 # Step 5 — Packages: nothing to pre-create (published via GITHUB_TOKEN).
