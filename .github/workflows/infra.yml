@@ -77,5 +77,11 @@ jobs:
 
       # -lock=false: the read-only plan role cannot write the S3 state lock, and
       # a plan does not mutate state. apply (local) still locks normally.
+      # -refresh=false: existing in-cluster (kubernetes_*) and secret-version
+      # resources would otherwise be refreshed, which requires reaching the
+      # private EKS API (runner IP is not in whitelist_cidrs) and
+      # secretsmanager:GetSecretValue (intentionally withheld from the read-only
+      # plan role). This PR gate validates config diffs against last state; drift
+      # detection is left to apply, which runs with cluster access and full perms.
       - name: Plan (read-only)
-        run: terraform plan -input=false -lock=false -var-file=staging.tfvars -no-color
+        run: terraform plan -input=false -lock=false -refresh=false -var-file=staging.tfvars -no-color
