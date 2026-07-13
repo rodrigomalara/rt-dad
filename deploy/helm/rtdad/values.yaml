@@ -1,0 +1,49 @@
+rabbitmq:
+  host: rabbitmq.rtdad.svc
+  port: 5672
+  credentialsSecret: rabbitmq-credentials
+
+consumer:
+  image:
+    repository: 007374813645.dkr.ecr.us-west-2.amazonaws.com/rtdad-consumer
+    digest: "" # sha256:...  required at deploy
+  replicas: 1
+  javaOpts: "-Xmx256m"
+  nodePort: 30808
+  resources:
+    requests: { cpu: 100m, memory: 384Mi }
+    limits: { memory: 512Mi }
+
+producer:
+  image:
+    repository: 007374813645.dkr.ecr.us-west-2.amazonaws.com/rtdad-producer
+    digest: ""
+  replicas: 1
+  javaOpts: "-Xmx256m"
+  # The producer overrides the Spring-autoconfigured connection with these CLI
+  # args (ProducerApplication BeanPostProcessor), so the RabbitMQ connection MUST
+  # be passed here. $(VAR) is substituted by Kubernetes from the container env
+  # (host/port from the ConfigMap, username/password from the Secret).
+  args:
+    - "--host=$(SPRING_RABBITMQ_HOST)"
+    - "--port=$(SPRING_RABBITMQ_PORT)"
+    - "--username=$(SPRING_RABBITMQ_USERNAME)"
+    - "--password=$(SPRING_RABBITMQ_PASSWORD)"
+    - "--rate-ms=200"
+    - "--anomaly-probability=0.05"
+  resources:
+    requests: { cpu: 100m, memory: 384Mi }
+    limits: { memory: 512Mi }
+
+rtdad:
+  window:
+    minSamples: 50
+    maxSamples: 100
+  detector:
+    zThreshold: "3.0"
+  amqp:
+    inboundQueue: rtdad_metrics_inbound
+    dlq: rtdad_metrics_inbound_dlq
+    metricsExchange: rtdad.metrics
+    dlx: rtdad.metrics.dlx
+    anomaliesExchange: rtdad_anomalies_outbound

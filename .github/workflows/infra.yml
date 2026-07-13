@@ -1,0 +1,87 @@
+name: infra
+
+on:
+  pull_request:
+    paths:
+      - "infra/**"
+      - ".github/workflows/infra.yml"
+
+permissions:
+  contents: read
+  id-token: write
+  pull-requests: write
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: infra/envs/staging
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.10.5
+
+      - name: Format check
+        run: terraform -chdir=../.. fmt -check -recursive
+
+      - name: Setup tflint
+        uses: terraform-linters/setup-tflint@v4
+        with:
+          tflint_version: v0.53.0
+
+      # tflint config lives at infra/.tflint.hcl; pass it explicitly so the AWS
+      # ruleset is active when linting the envs/staging root module.
+      - name: tflint
+        working-directory: infra
+        run: |
+          tflint --init
+          tflint --config="$PWD/.tflint.hcl" --chdir=envs/staging
+
+      - name: Configure AWS creds (read-only plan role)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.PLAN_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      # All inputs are low-sensitivity; generate tfvars from Actions Variables
+      # rather than committing a real staging.tfvars. Values pass through env
+      # (never ${{ }} inside run:) to avoid shell/expression injection, and the
+      # step fails loud if a required variable is unset instead of emitting
+      # invalid HCL.
+      - name: Generate tfvars
+        env:
+          AWS_REGION: ${{ vars.AWS_REGION }}
+          WHITELIST_CIDRS: ${{ vars.WHITELIST_CIDRS }}
+          OIDC_PROVIDER_ARN: ${{ vars.OIDC_PROVIDER_ARN }}
+        run: |
+          : "${AWS_REGION:?set repo variable AWS_REGION}"
+          : "${WHITELIST_CIDRS:?set repo variable WHITELIST_CIDRS (HCL list, e.g. [\"203.0.113.10/32\"])}"
+          : "${OIDC_PROVIDER_ARN:?set repo variable OIDC_PROVIDER_ARN}"
+          cat > staging.tfvars <<EOF
+          region            = "$AWS_REGION"
+          whitelist_cidrs   = $WHITELIST_CIDRS
+          oidc_provider_arn = "$OIDC_PROVIDER_ARN"
+          EOF
+
+      - name: Init
+        run: |
+          terraform init \
+            -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" \
+            -backend-config="region=${{ vars.AWS_REGION }}"
+
+      - name: Validate
+        run: terraform validate
+
+      # -lock=false: the read-only plan role cannot write the S3 state lock, and
+      # a plan does not mutate state. apply (local) still locks normally.
+      # -refresh=false: existing in-cluster (kubernetes_*) and secret-version
+      # resources would otherwise be refreshed, which requires reaching the
+      # private EKS API (runner IP is not in whitelist_cidrs) and
+      # secretsmanager:GetSecretValue (intentionally withheld from the read-only
+      # plan role). This PR gate validates config diffs against last state; drift
+      # detection is left to apply, which runs with cluster access and full perms.
+      - name: Plan (read-only)
+        run: terraform plan -input=false -lock=false -refresh=false -var-file=staging.tfvars -no-color

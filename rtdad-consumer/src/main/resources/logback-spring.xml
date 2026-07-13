@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <include resource="org/springframework/boot/logging/logback/defaults.xml"/>
+    <include resource="org/springframework/boot/logging/logback/console-appender.xml"/>
+
+    <!-- Detection lines carry their own [TIMESTAMP]; emit the message verbatim
+         (no Boot log prefix) so the console matches the spec format exactly and
+         the timestamp is not printed twice. -->
+    <appender name="DETECTION" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <logger name="com.company.rtdad.consumer.domain.DetectionLogger" level="INFO" additivity="false">
+        <appender-ref ref="DETECTION"/>
+    </logger>
+
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+    </root>
+</configuration>

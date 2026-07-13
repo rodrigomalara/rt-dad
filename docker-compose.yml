@@ -1,0 +1,95 @@
+services:
+  rabbitmq:
+    image: rabbitmq:3.13-management
+    container_name: rabbitmq-dev
+    ports:
+      - "5672:5672"   # AMQP
+      - "15672:15672" # Management UI
+    environment:
+      RABBITMQ_DEFAULT_USER: dev
+      RABBITMQ_DEFAULT_PASS: dev
+      RABBITMQ_DEFAULT_VHOST: /
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  producer:
+    build:
+      context: .
+      dockerfile: rtdad-producer/Dockerfile
+    container_name: rtdad-producer
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      SPRING_RABBITMQ_HOST: rabbitmq
+      SPRING_RABBITMQ_PORT: 5672
+      SPRING_RABBITMQ_USERNAME: dev
+      SPRING_RABBITMQ_PASSWORD: dev
+    # Pass CLI args after the jar, e.g.:
+    # command: ["--rate-ms=200", "--anomaly-probability=0.05"]
+    restart: "no"
+
+  consumer:
+    build:
+      context: .
+      dockerfile: rtdad-consumer/Dockerfile
+    container_name: rtdad-consumer
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      SPRING_RABBITMQ_HOST: rabbitmq
+      SPRING_RABBITMQ_PORT: 5672
+      SPRING_RABBITMQ_USERNAME: dev
+      SPRING_RABBITMQ_PASSWORD: dev
+      RTDAD_WINDOW_MIN_SAMPLES: 50
+      RTDAD_WINDOW_MAX_SAMPLES: 100
+      RTDAD_DETECTOR_Z_THRESHOLD: 3.0
+      RTDAD_DETECTOR_REGIME_SHIFT_RUN_FRACTION: 0.10
+    # Single-instance only: the RollingWindow is an in-memory, unpartitioned
+    # shared bean. Do NOT set `replicas` (or raise listener concurrency) here
+    # -- RabbitMQ would round-robin the stream across instances, giving each
+    # an incomplete window and statistically invalid mean/stddev. Correct
+    # horizontal scaling requires a partition key (e.g. device_id) with
+    # per-key routing, or an external shared-state store (e.g. Redis) for
+    # the window -- neither is implemented (YAGNI). See README.
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+
+  prometheus:
+    image: prom/prometheus:v3.13.0
+    container_name: rtdad-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:13.0.2
+    container_name: rtdad-grafana
+    depends_on:
+      - prometheus
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: dev
+      GF_SECURITY_ADMIN_PASSWORD: dev
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    restart: unless-stopped
+
+volumes:
+  rabbitmq-data:
+  prometheus-data:
+  grafana-data:

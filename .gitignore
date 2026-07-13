@@ -34,3 +34,20 @@ build/
 
 ### jenv
 .java-version
+
+### graphify
+graphify-out/
+
+### terraform
+infra/envs/staging/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+.terraform.lock.hcl
+crash.log
+
+### project
+scripts/.env
+infra/envs/staging/staging.tfvars
+

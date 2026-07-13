@@ -1,0 +1,14 @@
+spring:
+  application:
+    name: rtdad-producer
+  rabbitmq:
+    host: ${SPRING_RABBITMQ_HOST:localhost}
+    port: ${SPRING_RABBITMQ_PORT:5672}
+    username: ${SPRING_RABBITMQ_USERNAME:dev}
+    password: ${SPRING_RABBITMQ_PASSWORD:dev}
+  # Jackson 3 (Spring Boot 4) writes java.time as ISO-8601 by default
+  # (DateTimeFeature.WRITE_DATES_AS_TIMESTAMPS defaults to false), so no config is needed.
+
+logging:
+  level:
+    com.company.rtdad: INFO

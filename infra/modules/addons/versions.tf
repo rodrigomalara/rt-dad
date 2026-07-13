@@ -1,0 +1,9 @@
+terraform {
+  required_providers {
+    aws        = { source = "hashicorp/aws", version = "~> 5.70" }
+    helm       = { source = "hashicorp/helm", version = "~> 2.15" }
+    kubernetes = { source = "hashicorp/kubernetes", version = "~> 2.33" }
+    kubectl    = { source = "gavinbunney/kubectl", version = "~> 1.18" }
+    random     = { source = "hashicorp/random", version = "~> 3.6" }
+  }
+}
