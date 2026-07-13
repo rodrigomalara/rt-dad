@@ -82,6 +82,8 @@ Health), auto-provisioned. Topics a mature dashboard set should cover:
 - **Pipeline / RabbitMQ**: inbound depth, DLQ depth (must be 0), fanout rate.
 - **Runtime**: JVM heap/GC, CPU, restarts.
 
+[Screenshot of the dashboard](img/grafana-dashboard.png)
+
 Guidance: keep detection and infra on separate rows; annotate deploys so a
 metric shift can be tied to a rollout.
 

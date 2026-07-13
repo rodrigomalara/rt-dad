@@ -12,6 +12,24 @@ Maven multi-module monorepo: `rtdad-common` (shared JSON contract),
 How detection works and why (evaluate-then-add, anti-poisoning, regime
 shift, anomaly injection): see [docs/design.md](docs/design.md).
 
+## Prerequisites
+
+Local build and run only need Java and Docker. The rest are for infrastructure
+and deployment workflows.
+
+| Tool                  | Version    | Needed for                                            | Install |
+|-----------------------|------------|-------------------------------------------------------|---------|
+| **JDK**               | 25 (Temurin) | Build and run the Maven modules (`.java-version` pins `25`) | [Adoptium Temurin](https://adoptium.net/) / `sdk install java 25-tem` |
+| **Maven**             | —          | Build — bundled via `./mvnw` wrapper, no separate install | — |
+| **Docker**            | ≥ 24       | Local stack (RabbitMQ, Prometheus, Grafana, services)  | [Docker Engine](https://docs.docker.com/engine/install/) |
+| **Docker Compose**    | v2 (`docker compose`) | `docker compose up --build`                            | Ships with Docker Desktop / [compose plugin](https://docs.docker.com/compose/install/) |
+| **AWS CLI**           | v2         | ECR login, EKS access                                  | [AWS CLI v2](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html) |
+| **Terraform**         | 1.10.5     | Provision infra (`infra/`)                             | [HashiCorp Terraform](https://developer.hashicorp.com/terraform/install) |
+| **tflint**            | 0.53.0     | Lint Terraform                                         | [tflint](https://github.com/terraform-linters/tflint#installation) |
+| **kubectl**           | —          | Talk to the EKS cluster                                | [kubectl](https://kubernetes.io/docs/tasks/tools/) |
+| **Helm**              | 3          | Deploy charts (`deploy/helm/`)                         | [Helm](https://helm.sh/docs/intro/install/) |
+| **GitHub CLI (`gh`)** | —          | PRs, workflow runs, releases                           | [cli.github.com](https://cli.github.com/) |
+
 ## Build
 
 ```bash
