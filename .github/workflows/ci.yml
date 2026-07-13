@@ -155,14 +155,24 @@ jobs:
           done
         continue-on-error: true
 
-      - name: Scan images (Grype, non-blocking)
+      - name: Scan images (Grype, warn-only)
+        id: grype
+        continue-on-error: true
         run: |
+          status=0
           for svc in producer consumer; do
+            rc=0
             docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
               anchore/grype:latest "docker:rtdad-${svc}:ci" \
-              -o sarif > "${svc}.grype.sarif" || echo "grype failed for ${svc} (non-blocking)"
+              --fail-on high -o sarif > "${svc}.grype.sarif" || rc=$?
+            if [ "$rc" -ne 0 ]; then
+              echo "::warning title=Grype (${svc})::High+ severity vulnerabilities found — see Security → Code scanning"
+              echo "- ⚠️ **${svc}**: High+ severity vulnerabilities found" >> "$GITHUB_STEP_SUMMARY"
+              status=1
+            fi
           done
-        continue-on-error: true
+          # Non-zero + continue-on-error => yellow warning icon on the step, job still passes
+          exit $status
 
       - name: Publish Grype findings to Code Scanning (non-blocking)
         if: always()
