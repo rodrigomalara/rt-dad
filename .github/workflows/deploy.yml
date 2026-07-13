@@ -11,6 +11,12 @@ on:
 permissions:
   contents: read
 
+# Serialize deploys: overlapping runs would collide on the EKS endpoint
+# allowlist update (aws eks update-cluster-config rejects concurrent updates).
+concurrency:
+  group: deploy-staging
+  cancel-in-progress: false
+
 jobs:
   deploy:
     runs-on: ubuntu-latest

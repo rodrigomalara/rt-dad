@@ -70,3 +70,43 @@ module "addons" {
   secret_name            = module.secrets.secret_name
   tags                   = local.tags
 }
+
+# Application namespace. Also created by `helm --create-namespace` on deploy,
+# but owned here so the RBAC below can reference it deterministically.
+resource "kubernetes_namespace" "rtdad" {
+  metadata {
+    name = "rtdad"
+  }
+}
+
+# The managed AmazonEKSEditPolicy on the deploy access entry covers standard
+# namespaced resources but not the ServiceMonitor CRD. Grant just that, scoped
+# to the rtdad namespace, to the group the deploy role is mapped into.
+resource "kubernetes_role" "rtdad_deploy_servicemonitors" {
+  metadata {
+    name      = "rtdad-deploy-servicemonitors"
+    namespace = kubernetes_namespace.rtdad.metadata[0].name
+  }
+  rule {
+    api_groups = ["monitoring.coreos.com"]
+    resources  = ["servicemonitors"]
+    verbs      = ["get", "list", "watch", "create", "update", "patch", "delete"]
+  }
+}
+
+resource "kubernetes_role_binding" "rtdad_deploy_servicemonitors" {
+  metadata {
+    name      = "rtdad-deploy-servicemonitors"
+    namespace = kubernetes_namespace.rtdad.metadata[0].name
+  }
+  role_ref {
+    api_group = "rbac.authorization.k8s.io"
+    kind      = "Role"
+    name      = kubernetes_role.rtdad_deploy_servicemonitors.metadata[0].name
+  }
+  subject {
+    kind      = "Group"
+    name      = "rtdad-deployers" # matches access_entries.deployer.kubernetes_groups
+    api_group = "rbac.authorization.k8s.io"
+  }
+}
