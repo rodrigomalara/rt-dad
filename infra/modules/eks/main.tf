@@ -71,8 +71,10 @@ module "eks" {
     deployer = {
       principal_arn = var.deploy_role_arn
       policy_associations = {
-        edit = {
-          policy_arn = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSEditPolicy"
+        # Admin (not Edit) so the deploy can manage CRDs in the namespace,
+        # e.g. ServiceMonitor (monitoring.coreos.com). Scoped to rtdad only.
+        admin = {
+          policy_arn = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSAdminPolicy"
           access_scope = {
             type       = "namespace"
             namespaces = ["rtdad"]

@@ -61,11 +61,15 @@ jobs:
           ORIG=$(aws eks describe-cluster --name "${{ vars.EKS_CLUSTER_NAME }}" \
             --query 'cluster.resourcesVpcConfig.publicAccessCidrs' --output json)
           echo "orig=$(echo "$ORIG" | jq -c .)" >> "$GITHUB_OUTPUT"
-          NEW=$(echo "$ORIG" | jq -r --arg ip "${RUNNER_IP}/32" '. + [$ip] | unique | join(",")')
-          echo "adding ${RUNNER_IP}/32 -> allowlist [$NEW]"
-          aws eks update-cluster-config --name "${{ vars.EKS_CLUSTER_NAME }}" \
-            --resources-vpc-config publicAccessCidrs="$NEW"
-          aws eks wait cluster-active --name "${{ vars.EKS_CLUSTER_NAME }}"
+          if echo "$ORIG" | jq -e --arg ip "${RUNNER_IP}/32" 'index($ip)' >/dev/null; then
+            echo "runner IP ${RUNNER_IP}/32 already whitelisted, nothing to do"
+          else
+            NEW=$(echo "$ORIG" | jq -r --arg ip "${RUNNER_IP}/32" '. + [$ip] | unique | join(",")')
+            echo "adding ${RUNNER_IP}/32 -> allowlist [$NEW]"
+            aws eks update-cluster-config --name "${{ vars.EKS_CLUSTER_NAME }}" \
+              --resources-vpc-config publicAccessCidrs="$NEW"
+            aws eks wait cluster-active --name "${{ vars.EKS_CLUSTER_NAME }}"
+          fi
 
       - name: Update kubeconfig
         run: aws eks update-kubeconfig --name ${{ vars.EKS_CLUSTER_NAME }}
@@ -103,6 +107,11 @@ jobs:
           ORIG='${{ steps.eks_open.outputs.orig }}'
           RESTORE=$(echo "$ORIG" | jq -r 'join(",")')
           echo "restoring allowlist -> [$RESTORE]"
-          aws eks update-cluster-config --name "${{ vars.EKS_CLUSTER_NAME }}" \
-            --resources-vpc-config publicAccessCidrs="$RESTORE"
+          out=$(aws eks update-cluster-config --name "${{ vars.EKS_CLUSTER_NAME }}" \
+            --resources-vpc-config publicAccessCidrs="$RESTORE" 2>&1) || {
+            echo "$out"
+            echo "$out" | grep -q "already at the desired configuration" \
+              && { echo "allowlist already at original, nothing to restore"; exit 0; }
+            exit 1
+          }
           aws eks wait cluster-active --name "${{ vars.EKS_CLUSTER_NAME }}"
