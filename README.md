@@ -61,7 +61,7 @@ the producer (emits ~5 msg/s by default), the consumer (single instance,
 logs detections to stdout), Prometheus at http://localhost:9090, and Grafana
 at http://localhost:3000 (`dev`/`dev`). Grafana's Prometheus data source is
 provisioned automatically together with the **RT-DAD Detection Health**
-dashboard.
+dashboard (see [RT-DAD Detection Health](http://localhost:3000/d/rtdad-detection-health/rt-dad-detection-health?)).
 
 Stop everything: `docker compose down` (add `-v` to also drop the RabbitMQ
 volume).
@@ -183,6 +183,10 @@ Using Terraform and AWS EKS.
 
 See [docs/infrastructure.md](docs/infrastructure.md)
 
+> **Note:** The AWS infrastructure is **not currently running**. It was stood
+> up during development to validate the deploy pipeline and torn down
+> afterwards. The Terraform under `infra/` reproduces it on demand.
+
 ### Anomalies notifications
 
 Anomalies are posted to `rtdad_anomalies_outbound` RabbitMQ exchange.
@@ -207,6 +211,7 @@ Reallocating the window array on every rate change is wasteful under bursty
 traffic. Instead, allocate once for the worst-case burst in view and back it
 with a capped ring buffer: the detection logic then reads either the whole
 buffer or only a recent slice, depending on current load, with no reallocation.
+
 Pair this with a bounded RabbitMQ prefetch so the consumer doesn't pull more
 in-flight messages than its JVM can hold.
 
@@ -219,6 +224,16 @@ in-flight messages than its JVM can hold.
   layer that assigns queues across pods, or RabbitMQ Streams with a Stream
   Coordinator to partition consumption. (See [Consumer scaling](#consumer-scaling)
   for why naive replica scaling breaks the current algorithm.)
+- Per-stream mean/stddev recomputation is the hot path. Naively re-summing the
+  window on every event is `O(N)` per event (`O(N²)` per window turnover).
+  Replace it with a windowed **Welford's algorithm** backed by a circular
+  buffer: keep running `mean` and `M2` (sum of squared deltas) as running
+  aggregates, and on each event apply Welford's `O(1)` update for the incoming
+  sample plus its inverse to evict the sample the ring buffer overwrites. The
+  buffer bounds memory to the window size, the aggregates make mean and variance
+  `O(1)` per event, and this scales the per-queue virtual-thread cost down as the
+  number of streams grows. (Note: windowed Welford accumulates floating-point
+  drift over long runs; periodically recompute from the buffer to reset error.)
 
 ### Multiple producers, single consumer (discuss if needed)
 

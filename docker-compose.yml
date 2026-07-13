@@ -51,7 +51,6 @@ services:
       RTDAD_WINDOW_MIN_SAMPLES: 50
       RTDAD_WINDOW_MAX_SAMPLES: 100
       RTDAD_DETECTOR_Z_THRESHOLD: 3.0
-      RTDAD_DETECTOR_REGIME_SHIFT_RUN_FRACTION: 0.10
     # Single-instance only: the RollingWindow is an in-memory, unpartitioned
     # shared bean. Do NOT set `replicas` (or raise listener concurrency) here
     # -- RabbitMQ would round-robin the stream across instances, giving each

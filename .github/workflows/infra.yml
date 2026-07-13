@@ -78,7 +78,7 @@ jobs:
           OIDC_PROVIDER_ARN: ${{ vars.OIDC_PROVIDER_ARN }}
         run: |
           : "${AWS_REGION:?set repo variable AWS_REGION}"
-          : "${WHITELIST_CIDRS:?set repo variable WHITELIST_CIDRS (HCL list, e.g. [\"203.0.113.10/32\"])}"
+          : "${WHITELIST_CIDRS:?set repo variable WHITELIST_CIDRS (HCL list, e.g. [\"x.x.x.x/32\"])}"
           : "${OIDC_PROVIDER_ARN:?set repo variable OIDC_PROVIDER_ARN}"
           cat > staging.tfvars <<EOF
           region            = "$AWS_REGION"

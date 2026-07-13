@@ -1,8 +1,6 @@
 package com.company.rtdad.consumer.domain;
 
 import com.company.rtdad.common.MetricPoint;
-import java.util.ArrayDeque;
-import java.util.Deque;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -19,9 +17,12 @@ public class AnomalyDetector {
     // Run state for regime-shift detection. A "run" is a streak of consecutive anomalies all on
     // the same side of the mean. runSign (+1/-1) is that side; runBuffer holds the run's raw values
     // so the window can be reseeded from them once the run is long enough to be the new normal.
+    // Primitive-backed, sized lazily to the window's minSamples (the run's trigger bound) to avoid
+    // per-append Double boxing. runLen is the live element count.
     private int consecutiveAnomalies;
     private int runSign;
-    private final Deque<Double> runBuffer = new ArrayDeque<>();
+    private double[] runBuffer;
+    private int runLen;
 
     public AnomalyDetector(double zThreshold) {
         this.zThreshold = zThreshold;
@@ -86,18 +87,22 @@ public class AnomalyDetector {
         } else {
             runSign = sign;
             consecutiveAnomalies = 1;
-            runBuffer.clear();
+            runLen = 0;
         }
-        runBuffer.addLast(value);
 
         // Trigger threshold is the full min-samples requirement to ensure the detector doesn't go
-        // cold.
+        // cold. It also bounds the run's length, so the buffer never exceeds minSamples.
         int k = window.minSamples();
+
+        if (runBuffer == null) {
+            runBuffer = new double[k];
+        }
+        runBuffer[runLen++] = value;
 
         if (consecutiveAnomalies >= k) {
             // Rebase the window onto just the run's values so the new level becomes the baseline,
             // then re-score this point against that fresh baseline for a meaningful post-shift z.
-            window.reseed(runBuffer);
+            window.reseed(runBuffer, runLen);
             resetRun();
             double newMean = window.mean();
             double newStddev = window.stddev();
@@ -116,6 +121,6 @@ public class AnomalyDetector {
     private void resetRun() {
         consecutiveAnomalies = 0;
         runSign = 0;
-        runBuffer.clear();
+        runLen = 0;
     }
 }

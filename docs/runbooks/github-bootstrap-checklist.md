@@ -71,7 +71,7 @@ Repo-level:
 - [ ] `PLAN_ROLE_ARN` = read-only role ARN (`terraform output ci_plan_role_arn`)
 - [ ] `PUBLISH_ROLE_ARN` = CI publish role ARN (`terraform output ci_publish_role_arn`)
 - [ ] `WHITELIST_CIDRS` = source CIDRs allowed to reach NodePorts / admin
-      surfaces — HCL list literal, e.g. `["203.0.113.10/32"]` (from `scripts/.env`)
+      surfaces — HCL list literal, e.g. `["x.x.x.x/32"]` (from `scripts/.env`)
 - [ ] `OIDC_PROVIDER_ARN` = GitHub Actions OIDC provider ARN (env-independent,
       one per account: `arn:aws:iam::<ACCOUNT_ID>:oidc-provider/token.actions.githubusercontent.com`)
 

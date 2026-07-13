@@ -24,12 +24,8 @@ class AnomalyDetectorTest {
     @Test
     void aboveThresholdIsAnomaly() {
         AnomalyDetector detector = new AnomalyDetector(3.0);
-        RollingWindow window = new RollingWindow(100, 50);
-        for (int i = 0; i < 50; i++) {
-            window.add(100);
-        }
         // manufacture stddev=5 by adding varied values around 100 without breaking warm state
-        window = new RollingWindow(100, 50);
+        RollingWindow window = new RollingWindow(100, 50);
         double[] seed = new double[50];
         for (int i = 0; i < 50; i++) {
             seed[i] = 100 + (i % 2 == 0 ? 5 : -5);

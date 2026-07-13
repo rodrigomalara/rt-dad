@@ -117,7 +117,7 @@ class DetectorMetricsTest {
             window.add(100.0);
         }
         assertThat(gauge(m, "anomaly.detector.window.warm")).isEqualTo(1.0);
-        window.reseed(java.util.List.of(200.0, 201.0, 199.0)); // 3 points < min-samples 50
+        window.reseed(new double[] {200.0, 201.0, 199.0}, 3); // 3 points < min-samples 50
         assertThat(gauge(m, "anomaly.detector.window.warm")).isEqualTo(0.0);
         assertThat(gauge(m, "anomaly.detector.window.size")).isEqualTo(3.0);
     }

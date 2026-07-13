@@ -37,8 +37,8 @@ REPO="${REPO:-rodrigomalara/rt-dad}"
 : "${ACCOUNT_ID:?set ACCOUNT_ID (scripts/.env)}"
 # Source CIDRs allowed to reach NodePorts / admin surfaces. Published verbatim
 # as the WHITELIST_CIDRS Actions Variable and injected UNQUOTED into staging.tfvars,
-# so it must be a valid HCL list literal, e.g. '["203.0.113.10/32"]'.
-: "${WHITELIST_CIDRS:?set WHITELIST_CIDRS (scripts/.env; HCL list, e.g. [\"203.0.113.10/32\"])}"
+# so it must be a valid HCL list literal, e.g. '["x.x.x.x/32"]'.
+: "${WHITELIST_CIDRS:?set WHITELIST_CIDRS (scripts/.env; HCL list, e.g. [\"x.x.x.x/32\"])}"
 
 # Environments to bootstrap. Each must have a terraform env dir at
 # ${INFRA_DIR}/<env>. Override in .env, e.g. ENVIRONMENTS="staging production".

@@ -28,12 +28,13 @@ The detector tracks a run of consecutive same-sign anomalies. Once the run
 reaches:
 
 ```
-K = max(2, ceil(regime-shift-run-fraction * max-samples))
+K = min-samples
 ```
 
-(a **fraction of the window**, not an absolute count — a 100-point window
-tolerating a 10-point run is proportionally as sensitive as a 50-point
-window tolerating 5), the detector treats it as a regime shift:
+(the same count the window needs to warm up — a run that long is strong
+evidence of a new baseline rather than noise, and reseeding onto it leaves
+the window at exactly `min-samples` so it stays warm), the detector treats
+it as a regime shift:
 
 - The window is **reseeded** with the buffered run (`window.reseed(...)`) —
   the run becomes the new baseline.
