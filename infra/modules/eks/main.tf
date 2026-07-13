@@ -70,11 +70,14 @@ module "eks" {
   access_entries = {
     deployer = {
       principal_arn = var.deploy_role_arn
+      # Managed Edit policy covers standard namespaced resources; the CRD gap
+      # (ServiceMonitor / monitoring.coreos.com, which no managed policy grants)
+      # is filled by binding this group to a custom Role in the rtdad namespace
+      # (see infra/envs/staging/main.tf).
+      kubernetes_groups = ["rtdad-deployers"]
       policy_associations = {
-        # Admin (not Edit) so the deploy can manage CRDs in the namespace,
-        # e.g. ServiceMonitor (monitoring.coreos.com). Scoped to rtdad only.
-        admin = {
-          policy_arn = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSAdminPolicy"
+        edit = {
+          policy_arn = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSEditPolicy"
           access_scope = {
             type       = "namespace"
             namespaces = ["rtdad"]
