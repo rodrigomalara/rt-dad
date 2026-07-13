@@ -3,7 +3,6 @@ package com.company.rtdad.consumer.domain;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.within;
 
-import java.util.List;
 import org.junit.jupiter.api.Test;
 
 class RollingWindowTest {
@@ -62,7 +61,7 @@ class RollingWindowTest {
         window.add(2);
         window.add(3);
 
-        window.reseed(List.of(7.0, 7.0, 7.0));
+        window.reseed(new double[] {7.0, 7.0, 7.0}, 3);
 
         assertThat(window.size()).isEqualTo(3);
         assertThat(window.mean()).isEqualTo(7.0);

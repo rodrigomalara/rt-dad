@@ -47,9 +47,9 @@ public class ConsumerIntegrationConfig {
                         .build();
         Queue dlq =
                 QueueBuilder.durable(amqp.getDlq())
-                        .withArgument("x-max-length", 10000)
+                        .withArgument("x-max-length", 10_000)
                         .withArgument("x-overflow", "drop-head")
-                        .withArgument("x-message-ttl", 604800000) // 7 days in ms
+                        .withArgument("x-message-ttl", 604_800_000) // 7 days in ms
                         .build();
         Binding inboundBinding =
                 BindingBuilder.bind(inboundQueue).to(metricsExchange).with(amqp.getInboundQueue());

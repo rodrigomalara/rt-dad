@@ -5,7 +5,7 @@ rabbitmq:
 
 consumer:
   image:
-    repository: 007374813645.dkr.ecr.us-west-2.amazonaws.com/rtdad-consumer
+    repository: 000000000000.dkr.ecr.us-west-2.amazonaws.com/rtdad-consumer
     digest: "" # sha256:...  required at deploy
   replicas: 1
   javaOpts: "-Xmx256m"
@@ -16,7 +16,7 @@ consumer:
 
 producer:
   image:
-    repository: 007374813645.dkr.ecr.us-west-2.amazonaws.com/rtdad-producer
+    repository: 000000000000.dkr.ecr.us-west-2.amazonaws.com/rtdad-producer
     digest: ""
   replicas: 1
   javaOpts: "-Xmx256m"

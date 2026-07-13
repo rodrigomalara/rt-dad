@@ -119,7 +119,7 @@ jobs:
       id-token: write
       security-events: write
     env:
-      ECR_REGISTRY: 007374813645.dkr.ecr.us-west-2.amazonaws.com
+      ECR_REGISTRY: 000000000000.dkr.ecr.us-west-2.amazonaws.com
     steps:
       - name: Download image tarballs
         uses: actions/download-artifact@v4

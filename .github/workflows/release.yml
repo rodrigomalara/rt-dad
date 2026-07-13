@@ -15,7 +15,7 @@ jobs:
       id-token: write
       packages: write
     env:
-      ECR_REGISTRY: 007374813645.dkr.ecr.us-west-2.amazonaws.com
+      ECR_REGISTRY: 000000000000.dkr.ecr.us-west-2.amazonaws.com
     steps:
       - uses: actions/checkout@v4
         with:

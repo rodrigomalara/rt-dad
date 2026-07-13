@@ -12,7 +12,7 @@ Step-by-step bootstrap commands live in the runbooks
 
 ## Topology
 
-One environment today: **staging**, region **us-west-2**, account **007374813645**.
+One environment today: **staging**, region **us-west-2**, account **000000000000**.
 
 ```
  GitHub PR ── infra.yml ─────► terraform plan (read-only, OIDC plan role)
@@ -20,7 +20,7 @@ One environment today: **staging**, region **us-west-2**, account **007374813645
  tag v*.*.* ─ release.yml ───► retag ECR :vX.Y.Z + publish rtdad-common
  manual ───── deploy.yml ────► helm upgrade ──► EKS
 
-                                  AWS (us-west-2, acct 007374813645)
+                                  AWS (us-west-2, acct 000000000000)
    ┌───────────────────────────────────────────────────────────────────┐
    │  ECR: rtdad-producer / rtdad-consumer                               │
    │  VPC 10.20.0.0/16 (2 AZ, public+private subnets)                    │

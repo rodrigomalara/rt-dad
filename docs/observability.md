@@ -12,7 +12,7 @@ Legend: **[have]** implemented today · **[gap]** proposed, not yet built.
 RT-DAD is a single-consumer stateful stream processor. That shape dictates
 what matters:
 
-- The consumer **cannot scale** (single in-memory `RollingWindow`,
+- The consumer **should not scale** (single in-memory `RollingWindow`,
   `concurrency=1`). So the primary risk is *this one instance* falling behind
   or losing state — not fleet-level aggregation.
 - Detection quality is **statistical**, not binary. "Is it healthy" is not
@@ -133,8 +133,16 @@ Value: pinpoint where latency/loss occurs end-to-end.
 
 ## 6. SLIs / SLOs **[gap]**
 
+- **SLI** (Service Level *Indicator*) — a metric that quantifies one aspect of
+  the service's health, e.g. "publish-to-detection lag" or "fraction of
+  scrapes where the consumer was up". The measurement.
+- **SLO** (Service Level *Objective*) — the target that SLI must meet over a
+  window, e.g. "p99 lag < 2s over 30d" or "availability ≥ 99.5%". The
+  threshold that turns a number into pass/fail, and the basis for an error
+  budget (how much you're allowed to miss before it's a problem).
+
 Define what "healthy" means numerically so alerts and dashboards have a
-target:
+target. Candidate SLIs (each needs an SLO attached):
 
 - **Freshness / lag**: time from publish to detection (needs producer +
   consumer timestamps).

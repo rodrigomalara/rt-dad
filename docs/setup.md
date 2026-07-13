@@ -72,7 +72,7 @@ environment scope — never committed to HCL):
 | `DEPLOY_ROLE_ARN` | `terraform output ci_deploy_role_arn` |
 | `PUBLISH_ROLE_ARN` | `terraform output ci_publish_role_arn` |
 | `EKS_CLUSTER_NAME` | `rtdad-staging` |
-| `WHITELIST_CIDRS` | HCL list, e.g. `["203.0.113.10/32"]` |
+| `WHITELIST_CIDRS` | HCL list, e.g. `["x.x.x.x/32"]` |
 | `OIDC_PROVIDER_ARN` | bootstrap OIDC provider ARN |
 
 → Run `./scripts/github-bootstrap.sh` or follow

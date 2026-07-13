@@ -1,7 +1,5 @@
 package com.company.rtdad.consumer.domain;
 
-import java.util.Collection;
-
 /**
  * Fixed-capacity ring buffer tracking running sum and sum-of-squares for O(1) mean/variance. A dumb
  * buffer: it never decides what to admit, only stores. No Spring dependency.
@@ -39,13 +37,14 @@ public class RollingWindow {
         }
     }
 
-    public void reseed(Collection<Double> values) {
+    /** Reseeds from the first {@code length} elements of {@code values}. */
+    public void reseed(double[] values, int length) {
         size = 0;
         head = 0;
         sum = 0;
         sumSq = 0;
-        for (double v : values) {
-            add(v);
+        for (int i = 0; i < length; i++) {
+            add(values[i]);
         }
     }
 
