@@ -50,6 +50,23 @@ jobs:
             echo "${svc}=${d}" >> "$GITHUB_OUTPUT"
           done
 
+      # The control-plane public endpoint is locked to a static /32 allowlist
+      # (infra/modules/eks/main.tf). A GitHub-hosted runner egresses from an
+      # unpredictable IP, so add it to the allowlist for the duration of the
+      # job and revert unconditionally at the end.
+      - name: Open EKS endpoint to this runner
+        id: eks_open
+        run: |
+          RUNNER_IP=$(curl -s https://checkip.amazonaws.com)
+          ORIG=$(aws eks describe-cluster --name "${{ vars.EKS_CLUSTER_NAME }}" \
+            --query 'cluster.resourcesVpcConfig.publicAccessCidrs' --output json)
+          echo "orig=$(echo "$ORIG" | jq -c .)" >> "$GITHUB_OUTPUT"
+          NEW=$(echo "$ORIG" | jq -r --arg ip "${RUNNER_IP}/32" '. + [$ip] | unique | join(",")')
+          echo "adding ${RUNNER_IP}/32 -> allowlist [$NEW]"
+          aws eks update-cluster-config --name "${{ vars.EKS_CLUSTER_NAME }}" \
+            --resources-vpc-config publicAccessCidrs="$NEW"
+          aws eks wait cluster-active --name "${{ vars.EKS_CLUSTER_NAME }}"
+
       - name: Update kubeconfig
         run: aws eks update-kubeconfig --name ${{ vars.EKS_CLUSTER_NAME }}
 
@@ -79,3 +96,13 @@ jobs:
           dead=$(scrape '^anomaly_detector_dead_letters_total')
           echo "dead_letters=$dead"
           [ "$dead" -eq 0 ] || { echo "dead letters present"; exit 1; }
+
+      - name: Restore EKS endpoint allowlist
+        if: always() && steps.eks_open.outputs.orig != ''
+        run: |
+          ORIG='${{ steps.eks_open.outputs.orig }}'
+          RESTORE=$(echo "$ORIG" | jq -r 'join(",")')
+          echo "restoring allowlist -> [$RESTORE]"
+          aws eks update-cluster-config --name "${{ vars.EKS_CLUSTER_NAME }}" \
+            --resources-vpc-config publicAccessCidrs="$RESTORE"
+          aws eks wait cluster-active --name "${{ vars.EKS_CLUSTER_NAME }}"

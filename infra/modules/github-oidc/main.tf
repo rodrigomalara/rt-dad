@@ -77,13 +77,19 @@ data "aws_iam_policy_document" "deploy_perms" {
       "ecr:UploadLayerPart",
       "ecr:BatchGetImage",
       "ecr:GetDownloadUrlForLayer",
+      "ecr:DescribeImages",
     ]
     resources = var.ecr_repository_arns
   }
   statement {
-    sid       = "EksDescribe"
-    effect    = "Allow"
-    actions   = ["eks:DescribeCluster"]
+    sid    = "EksAccess"
+    effect = "Allow"
+    actions = [
+      "eks:DescribeCluster",
+      # Temporarily add the runner's public IP to the endpoint allowlist,
+      # then revert it at end of the deploy job (see deploy.yml).
+      "eks:UpdateClusterConfig",
+    ]
     resources = [var.eks_cluster_arn]
   }
 }

@@ -9,6 +9,9 @@ re-publishes confirmed anomalies to a fanout exchange.
 Maven multi-module monorepo: `rtdad-common` (shared JSON contract),
 `rtdad-producer` (CLI generator), `rtdad-consumer` (Z-score detector).
 
+How detection works and why (evaluate-then-add, anti-poisoning, regime
+shift, anomaly injection): see [docs/design.md](docs/design.md).
+
 ## Build
 
 ```bash
@@ -89,6 +92,7 @@ All settings are overridable via environment variables (see
 
 ## Observe
 
+- What's measured and why (signal inventory, gaps): [docs/observability.md](docs/observability.md).
 - Consumer stdout: one line per data point (see log format below).
 - Prometheus targets (`localhost:9090/targets`): verify that the consumer
   Actuator endpoint is being scraped.
@@ -113,48 +117,7 @@ Regime:  [<TIMESTAMP>] Data point: <X.XX> | Status: REGIME SHIFT | Z-score: <Z.Z
 - `Inf` — the window is "flat" (`stddev == 0`, every sample identical so
   far) and the point differs from that constant value; any deviation from a
   perfectly flat baseline is an unbounded (infinite) Z-score.
-- `REGIME SHIFT` — see below.
-
-## Anomaly injection (producer)
-
-With probability `--anomaly-probability` per point, the producer emits an
-outlier instead of a normal sample: `mean ± (8..12) * stddev`, sign random.
-This guarantees Z >> 3 once the consumer's window is warm, so injected
-outliers reliably trigger `ANOMALY DETECTED!` (or, if sustained, a regime
-shift — see below).
-
-## Anomaly detection semantics
-
-The detector scores each point **against the window's prior state**
-(evaluate-then-add) — adding the point first would let it inflate its own
-mean/stddev and suppress its own Z-score. A confirmed anomaly (a transient
-spike) is logged/published but **not admitted** to the window
-(anti-poisoning): a burst of one-off outliers cannot drag the reference
-statistics off course.
-
-### Regime shift
-
-A single spike is noise; a *sustained, same-direction* run of anomalies is
-evidence the underlying process has genuinely shifted to a new baseline.
-The detector tracks a run of consecutive same-sign anomalies. Once the run
-reaches:
-
-```
-K = max(2, ceil(regime-shift-run-fraction * max-samples))
-```
-
-(a **fraction of the window**, not an absolute count — a 100-point window
-tolerating a 10-point run is proportionally as sensitive as a 50-point
-window tolerating 5), the detector treats it as a regime shift:
-
-- The window is **reseeded** with the buffered run (`window.reseed(...)`) —
-  the run becomes the new baseline.
-- This is logged as `REGIME SHIFT` (a notice, not an alert) and is **not**
-  published to the anomalies fanout — it marks adaptation, not a fault.
-- An opposite-sign outlier mid-run resets the counter (it's noise breaking
-  up the trend, not a continuation of it).
-- After reseeding, the window may briefly dip below `min-samples` and
-  re-enter warm-up — this is expected, safe behavior.
+- `REGIME SHIFT` — see [detection rationale](docs/design.md#regime-shift).
 
 ## `AnomalyEvent` — fanout schema
 
@@ -168,13 +131,13 @@ Published to the `rtdad_anomalies_outbound` fanout exchange (JSON,
 `zScore` may be a large or `Infinity` value for the flat-window case;
 treat non-finite as "unbounded deviation".
 
-## Do not scale the consumer
+## Consumer scaling
 
-**Hard limitation: run exactly one consumer instance.** The `RollingWindow`
-is a single in-memory bean and the listener is deliberately pinned to
-`concurrency=1` so window mutation needs no locking. If you scale the
-consumer (`docker compose up --scale consumer=2`, or raise listener
-concurrency), RabbitMQ round-robins the stream across instances — each
+It is suggested to run exactly one consumer instance, considering the
+algorithm being used. The `RollingWindow` is a single in-memory bean and
+the listener is deliberately pinned to `concurrency=1` so window mutation 
+needs no locking. If you scale the consumer (`docker compose up --scale consumer=2`,
+or raise listener concurrency), RabbitMQ round-robins the stream across instances — each
 consumer then sees a disjoint subset of the traffic, giving every instance
 an incomplete window and statistically invalid mean/stddev. `docker-compose.yml`
 deliberately omits `replicas` on the `consumer` service for this reason.
@@ -187,3 +150,70 @@ Correct horizontal scaling would require either:
 
 Neither is implemented here (YAGNI) — this section exists so nobody scales
 it blindly.
+
+# Up next
+
+This POC handles a single, steady event stream. The scenarios below sketch how
+the design would evolve under more demanding conditions. None are implemented
+(YAGNI) — they document the intended direction so the trade-offs are explicit.
+
+## Variable event velocity
+
+Incoming message rate is not constant. Track a moving average of the arrival
+rate and resize the rolling window to match it: grow the window when traffic is
+sparse, shrink it when traffic is dense. This keeps alert sensitivity high while
+using the fewest samples that still yield a valid mean/stddev.
+
+## High burstiness
+
+Reallocating the window array on every rate change is wasteful under bursty
+traffic. Instead, allocate once for the worst-case burst in view and back it
+with a capped ring buffer: the detection logic then reads either the whole
+buffer or only a recent slice, depending on current load, with no reallocation.
+Pair this with a bounded RabbitMQ prefetch so the consumer doesn't pull more
+in-flight messages than its JVM can hold.
+
+## Multiple event and notification streams
+
+- One virtual thread per queue keeps per-stream processing isolated and cheap.
+- RabbitMQ throughput becomes a capacity concern worth measuring.
+- Prefer vertical scaling first — more CPU and memory for the consumer.
+- Horizontal scaling is possible but needs work: either a load-distribution
+  layer that assigns queues across pods, or RabbitMQ Streams with a Stream
+  Coordinator to partition consumption. (See [Consumer scaling](#consumer-scaling)
+  for why naive replica scaling breaks the current algorithm.)
+
+## Multiple producers, single consumer (discuss if needed)
+
+- Events may reach the exchange in a different order than they were emitted.
+  Since ordering can determine whether an alert fires, detection behaviour can
+  drift.
+- A single consumer becomes a bottleneck: its queue floods and alerts are
+  emitted long after the events that triggered them.
+
+## Rolling-window state recovery (if required)
+
+Rebuild window state on pod startup so a restart doesn't blind the detector:
+
+- **RabbitMQ:** a history queue with `max-length = N` replays the last `N`
+  messages to reconstruct the window.
+- **RabbitMQ Streams / Kafka:** rewind the offset by `N`, replay silently (no
+  alerts), then resume live processing.
+
+## Out-of-order events and clock skew
+
+Events are currently processed in arrival order. If processing must honour
+event time instead, stream events into a time-series database and run anomaly
+detection over data pulled from it. This decouples detection from arrival order
+but sharply increases capacity requirements.
+
+## Seasonality
+
+Z-score assumes roughly normally distributed data, so it will alert on
+legitimate regime changes — e.g. daytime vs. night-time traffic for a service
+backing a business application. Handling seasonality would require a
+baseline that adapts to the expected periodic pattern.
+
+# Disclaimer
+
+AI was used during this POC development.
