@@ -151,20 +151,39 @@ Correct horizontal scaling would require either:
 Neither is implemented here (YAGNI) — this section exists so nobody scales
 it blindly.
 
-# Up next
+## Added features – not in [requirements](docs/requirements.md)
+
+### Observability
+
+Using Spring actuator, micrometer, Prometheus, and Grafana.
+
+See [docs/observability.md](docs/observability.md)
+
+### Infrastructure
+
+Using Terraform and AWS EKS.
+
+See [docs/infrastructure.md](docs/infrastructure.md)
+
+### Anomalies notifications
+
+Anomalies are posted to `rtdad_anomalies_outbound` RabbitMQ exchange.
+
+
+## Up next
 
 This POC handles a single, steady event stream. The scenarios below sketch how
 the design would evolve under more demanding conditions. None are implemented
 (YAGNI) — they document the intended direction so the trade-offs are explicit.
 
-## Variable event velocity
+### Variable event velocity
 
 Incoming message rate is not constant. Track a moving average of the arrival
 rate and resize the rolling window to match it: grow the window when traffic is
 sparse, shrink it when traffic is dense. This keeps alert sensitivity high while
 using the fewest samples that still yield a valid mean/stddev.
 
-## High burstiness
+### High burstiness
 
 Reallocating the window array on every rate change is wasteful under bursty
 traffic. Instead, allocate once for the worst-case burst in view and back it
@@ -173,7 +192,7 @@ buffer or only a recent slice, depending on current load, with no reallocation.
 Pair this with a bounded RabbitMQ prefetch so the consumer doesn't pull more
 in-flight messages than its JVM can hold.
 
-## Multiple event and notification streams
+### Multiple event and notification streams
 
 - One virtual thread per queue keeps per-stream processing isolated and cheap.
 - RabbitMQ throughput becomes a capacity concern worth measuring.
@@ -183,7 +202,7 @@ in-flight messages than its JVM can hold.
   Coordinator to partition consumption. (See [Consumer scaling](#consumer-scaling)
   for why naive replica scaling breaks the current algorithm.)
 
-## Multiple producers, single consumer (discuss if needed)
+### Multiple producers, single consumer (discuss if needed)
 
 - Events may reach the exchange in a different order than they were emitted.
   Since ordering can determine whether an alert fires, detection behaviour can
@@ -191,7 +210,7 @@ in-flight messages than its JVM can hold.
 - A single consumer becomes a bottleneck: its queue floods and alerts are
   emitted long after the events that triggered them.
 
-## Rolling-window state recovery (if required)
+### Rolling-window state recovery (if required)
 
 Rebuild window state on pod startup so a restart doesn't blind the detector:
 
@@ -200,20 +219,20 @@ Rebuild window state on pod startup so a restart doesn't blind the detector:
 - **RabbitMQ Streams / Kafka:** rewind the offset by `N`, replay silently (no
   alerts), then resume live processing.
 
-## Out-of-order events and clock skew
+### Out-of-order events and clock skew
 
 Events are currently processed in arrival order. If processing must honour
 event time instead, stream events into a time-series database and run anomaly
 detection over data pulled from it. This decouples detection from arrival order
 but sharply increases capacity requirements.
 
-## Seasonality
+### Seasonality
 
 Z-score assumes roughly normally distributed data, so it will alert on
 legitimate regime changes — e.g. daytime vs. night-time traffic for a service
 backing a business application. Handling seasonality would require a
 baseline that adapts to the expected periodic pattern.
 
-# Disclaimer
+## Disclaimer
 
-AI was used during this POC development.
+AI was used during this POC development, during analysis, design, and implementation phases.
