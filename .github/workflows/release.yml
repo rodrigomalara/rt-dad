@@ -1,0 +1,88 @@
+name: release
+
+on:
+  push:
+    tags: ["v*.*.*"]
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      packages: write
+    env:
+      ECR_REGISTRY: 007374813645.dkr.ecr.us-west-2.amazonaws.com
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate SemVer and resolve commit
+        id: v
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "tag $TAG is not strict vMAJOR.MINOR.PATCH"; exit 1
+          fi
+          COMMIT_SHA=$(git rev-parse "${GITHUB_SHA}^{commit}")
+          git fetch origin main
+          if ! git merge-base --is-ancestor "$COMMIT_SHA" origin/main; then
+            echo "tagged commit is not on main"; exit 1
+          fi
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+          echo "sha=sha-$(echo "$COMMIT_SHA" | cut -c1-7)" >> "$GITHUB_OUTPUT"
+
+      - name: Configure AWS credentials (publish role)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.PUBLISH_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Login to ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Verify source images exist, then retag with the version
+        run: |
+          SHA="${{ steps.v.outputs.sha }}"
+          VERSION="${{ steps.v.outputs.version }}"
+          for svc in producer consumer; do
+            aws ecr describe-images --repository-name "rtdad-${svc}" \
+              --image-ids imageTag="${SHA}" >/dev/null
+            docker buildx imagetools create \
+              "${ECR_REGISTRY}/rtdad-${svc}:${SHA}" \
+              -t "${ECR_REGISTRY}/rtdad-${svc}:${VERSION}"
+          done
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "25"
+          cache: maven
+          server-id: github
+          server-username: MAVEN_USERNAME
+          server-password: MAVEN_PASSWORD
+
+      - name: Publish rtdad-common to GitHub Packages
+        env:
+          MAVEN_USERNAME: ${{ github.actor }}
+          MAVEN_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+        run: ./mvnw -B -Drevision="${{ steps.v.outputs.version }}" -pl rtdad-common deploy
+
+      - name: Regenerate SBOM for released digest
+        run: |
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+            anchore/syft:latest "${ECR_REGISTRY}/rtdad-consumer:${{ steps.v.outputs.version }}" \
+            -o cyclonedx-json > consumer-release.sbom.json || echo "syft failed (non-blocking)"
+        continue-on-error: true
+
+      - name: Upload release evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-supply-chain
+          path: "*.sbom.json"
+          if-no-files-found: ignore

@@ -43,7 +43,7 @@ Settings → **Actions → General**
 Settings → **Branches → Add rule** (or Rulesets)
 
 - [ ] Require a pull request before merging.
-- [ ] Require status checks to pass: the app **CI** workflow (and `infra` plan
+- [ ] Require status checks to pass: `build-test` (app CI) and `plan` (infra,
       when `infra/**` changed).
 - [ ] Require branches up to date before merging.
 - [ ] (Optional) require linear history.
@@ -67,6 +67,7 @@ Repo-level:
 - [ ] `AWS_REGION` = `<REGION>`
 - [ ] `TF_STATE_BUCKET` = `rt-dad-tfstate-<ACCOUNT_ID>`
 - [ ] `PLAN_ROLE_ARN` = read-only role ARN (`terraform output`)
+- [ ] `PUBLISH_ROLE_ARN` = CI publish role ARN (`terraform output ci_publish_role_arn`)
 
 Environment-scoped (`staging` / `production`):
 

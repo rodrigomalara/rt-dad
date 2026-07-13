@@ -1,0 +1,20 @@
+# CI-only override. Used with:
+#   docker compose -f docker-compose.yml -f docker-compose.ci.yml ...
+# Binds the buildx-loaded images (so --no-build reuses the smoke-validated bytes)
+# and gives the producer a bounded workload with an explicit broker connection.
+services:
+  producer:
+    image: rtdad-producer:ci
+    command:
+      - "--host=rabbitmq"
+      - "--port=5672"
+      - "--username=dev"
+      - "--password=dev"
+      - "--duration-seconds=30"
+      - "--rate-ms=50"
+      # 0.05 (the app default): keeps the detector warm-up window clean so
+      # post-warmup anomalies read 8-12σ and reliably cross z=3.0. Higher rates
+      # poison the warm-up baseline (AnomalyDetector admits all points until warm).
+      - "--anomaly-probability=0.05"
+  consumer:
+    image: rtdad-consumer:ci
