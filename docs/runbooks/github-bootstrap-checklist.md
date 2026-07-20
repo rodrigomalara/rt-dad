@@ -1,103 +1,87 @@
-# RT-DAD — GitHub Bootstrap Checklist (Manual Repo Settings)
+# GitHub Bootstrap Checklist
+
+Welcome! This checklist covers the one-time manual settings that must be configured in the GitHub repository to get the CI/CD pipeline running smoothly. 
 
 **Date:** 2026-07-12
-**Status:** Prerequisite for the CI/CD pipeline
-**Scope:** One-time manual settings in the GitHub repository that the pipeline
-depends on. Pairs with `2026-07-11-aws-bootstrap-checklist.md`.
 
-## Context
+## Why is this needed?
 
-The pipeline authenticates to AWS via OIDC (no stored keys) and deploys with
-`helm upgrade`. GitHub must be configured with branch protection, the two
-deployment environments, and the Actions Variables that carry the
-Terraform-produced role ARNs. No GitHub **secret** is required — OIDC removes
-static AWS keys, and the release job uses the built-in `GITHUB_TOKEN`.
+The pipeline is designed to be secure and hands-off. It authenticates to AWS using OIDC (so static access keys are not stored) and deploys the code using Helm. To make this work, GitHub needs a few things:
+1. Branch protection to ensure code is reviewed and tested before it merges.
+2. Deployment environments to track where code is going.
+3. Actions Variables to store the AWS Role ARNs that Terraform created.
 
-Repo: `rodrigomalara/rt-dad` (public).
+> **Note:** GitHub **Secrets** are not used for any AWS configuration! OIDC eliminates the need for static keys, and the release jobs simply use the built-in `GITHUB_TOKEN`.
 
-## Ordering (important)
+## Before beginning...
 
-These runbooks interleave:
+Because the systems rely on each other, make sure these steps are done in the correct order:
+1. Complete Steps 1-3 of the **[AWS Bootstrap Checklist](aws-bootstrap-checklist.md)**.
+2. Run the first **local `terraform apply`** for the staging environment. This creates the CI plan and deploy roles in AWS and outputs their ARNs.
+3. **Now this checklist is ready!** Those role ARNs will be needed for Step 4.
 
-1. **AWS bootstrap** steps 1–3 (state bucket, locking, OIDC provider) + local
-   admin creds.
-2. **Local `terraform apply` (staging)** — creates the CI plan/deploy roles and
-   outputs their ARNs.
-3. **This runbook** — environments must exist before per-environment Variables
-   and before the OIDC `sub` can be scoped to `environment:*`; the role ARNs
-   come from step 2's `terraform output`.
+---
 
-## Step 1 — Actions enabled + default permissions
+### Step 1: Enable Actions and Set Permissions
 
-Settings → **Actions → General**
+First, ensure GitHub Actions has exactly the permissions it needs—no more, no less.
+Go to **Settings → Actions → General**.
 
-- [ ] Actions enabled (GitHub-hosted Ubuntu runners).
-- [ ] Workflow permissions: **Read repository contents** (least privilege).
-      Jobs elevate per-job (`id-token: write`, `packages: write`) in workflow
-      YAML, not globally.
-- [ ] Fork PR runs: require approval for first-time contributors (limits public
-      fork exposure). Credentialed jobs never run on `pull_request` from forks.
+- [ ] Ensure **Actions permissions** are set to "Allow all actions and reusable workflows" (or restrict it to GitHub-hosted Ubuntu runners if preferred).
+- [ ] Under **Workflow permissions**, choose **Read repository contents**. (This is the principle of least privilege. When workflows need more access—like writing packages—they request it temporarily).
+- [ ] Under **Fork pull request workflows from outside collaborators**, check **Require approval for first-time contributors**. This protects against malicious pull requests.
 
-## Step 2 — Branch protection on `main`
+### Step 2: Protect the `main` Branch
 
-Settings → **Branches → Add rule** (or Rulesets)
+It must be ensured that all code going into `main` is safe and approved.
+Go to **Settings → Branches → Add branch protection rule** (or use Rulesets if preferred).
 
-- [ ] Require a pull request before merging.
-- [ ] Require status checks to pass: `build-test` (app CI) and `plan` (infra,
-      when `infra/**` changed).
-- [ ] Require branches up to date before merging.
-- [ ] (Optional) require linear history.
+- **Branch name pattern:** `main`
+- [ ] **Require a pull request before merging.**
+- [ ] **Require status checks to pass before merging:**
+  - `build-test` (This ensures the app code compiles and tests pass).
+  - `plan` (This runs `terraform plan` when infrastructure files change).
+- [ ] **Require branches to be up to date before merging.**
+- [ ] *(Optional but recommended)* Require linear history.
 
-## Step 3 — Environments
+### Step 3: Set Up Deployment Environments
 
-Settings → **Environments**
+Environments allow tracking deployments and adding approval gates.
+Go to **Settings → Environments → New environment**.
 
-- [ ] `staging` — no required reviewers (auto-deploys after publish).
-- [ ] `production` — **Required reviewers: yourself**; optional wait timer.
-- [ ] (Optional) restrict each environment's deployment branches to `main` /
-      tags.
+- [ ] Create an environment named `staging`.
+  - Leave this to auto-deploy (no required reviewers).
+- [ ] Create an environment named `production`.
+  - Add **Yourself** (and any other leads) under **Required reviewers**.
+- [ ] *(Optional)* Restrict both environments so they can only deploy from the `main` branch or release tags.
 
-## Step 4 — Actions Variables (no secrets)
+### Step 4: Add Actions Variables
 
-Settings → **Secrets and variables → Actions → Variables**. Use
-**environment-scoped** variables where the value differs per environment.
+Here is where GitHub is told how to talk to the newly built AWS infrastructure.
+Go to **Settings → Secrets and variables → Actions → Variables**.
 
-Repo-level:
+> Remember, these are standard Variables, not Secrets. They are low-sensitivity identifiers (like ARNs or region names). Because this repository is public, it is assumed all logs are readable by anyone. Security comes from the OIDC trust condition in AWS, not from hiding these values.
 
-- [ ] `AWS_REGION` = `<REGION>`
-- [ ] `TF_STATE_BUCKET` = state bucket name — pinned in `scripts/.env` (carries a
-      region + deployment suffix, e.g. `rt-dad-tfstate-<ACCOUNT_ID>-<REGION>-<suffix>`,
-      not the bare account-id formula)
-- [ ] `PLAN_ROLE_ARN` = read-only role ARN (`terraform output ci_plan_role_arn`)
-- [ ] `PUBLISH_ROLE_ARN` = CI publish role ARN (`terraform output ci_publish_role_arn`)
-- [ ] `WHITELIST_CIDRS` = source CIDRs allowed to reach NodePorts / admin
-      surfaces — HCL list literal, e.g. `["203.0.113.10/32"]` (from `scripts/.env`)
-- [ ] `OIDC_PROVIDER_ARN` = GitHub Actions OIDC provider ARN (env-independent,
-      one per account: `arn:aws:iam::<ACCOUNT_ID>:oidc-provider/token.actions.githubusercontent.com`)
+**Add these at the Repository level:**
+- [ ] `AWS_REGION` = The target region (e.g., `us-west-2`)
+- [ ] `TF_STATE_BUCKET` = The name of the S3 state bucket (e.g., `rt-dad-tfstate-<ACCOUNT_ID>-<REGION>-<suffix>`)
+- [ ] `PLAN_ROLE_ARN` = The read-only role ARN (from `terraform output ci_plan_role_arn`)
+- [ ] `PUBLISH_ROLE_ARN` = The CI publish role ARN (from `terraform output ci_publish_role_arn`)
+- [ ] `WHITELIST_CIDRS` = The IP addresses allowed to reach the admin surfaces (formatted as an HCL list, e.g., `["203.0.113.10/32"]`)
+- [ ] `OIDC_PROVIDER_ARN` = The GitHub Actions OIDC provider ARN created in the AWS bootstrap.
 
-Environment-scoped (`staging` / `production`):
+**Add these as Environment-specific variables:**
+Go back to the `staging` environment settings to add these:
+- [ ] `DEPLOY_ROLE_ARN` = The staging deploy role ARN (from `terraform output ci_deploy_role_arn`)
+- [ ] `EKS_CLUSTER_NAME` = The staging cluster name (from `terraform output cluster_name`)
 
-- [ ] `DEPLOY_ROLE_ARN` = env deploy role ARN (`terraform output`)
-- [ ] `EKS_CLUSTER_NAME` = env cluster name (`terraform output`)
+### Step 5: Configure GitHub Packages
 
-> All low-sensitivity (ARNs/region/bucket). Fine as Variables; a public repo's
-> logs are assumed world-readable, and security rests on the OIDC trust
-> condition, not on hiding these.
+GitHub Packages are used to store the release artifacts (like `rtdad-common`).
+- [ ] **No immediate setup needed!** The first time a release is tagged, the pipeline will automatically publish the package using the `GITHUB_TOKEN`.
+- [ ] **After the first publish:** If desired, one can go to the **Packages** tab on the repository homepage and ensure the package visibility is set to **Public** (to match the repository).
 
-## Step 5 — GitHub Packages (release artifact repo)
+### Step 6: (Optional) Protect Release Tags
 
-- [ ] No setup needed to publish — the tag-release job publishes `rtdad-common`
-      to the GitHub Packages Maven registry using `GITHUB_TOKEN` +
-      `packages: write` (job-scoped).
-- [ ] After the first publish, set the package visibility to **public** (matches
-      the public repo) under the repo's Packages tab if desired.
-
-## Step 6 — (Optional) tag protection
-
-- [ ] Protect `v*` tags (Rulesets → Tag) so only intended releases trigger the
-      release/publish path.
-
-## Cross-references
-
-- AWS side: `2026-07-11-aws-bootstrap-checklist.md`
-- Pipeline design: `../superpowers/specs/2026-07-11-rtdad-delivery-pipeline-design.md`
+To prevent accidental or malicious release triggers:
+- [ ] Create a new Ruleset for **Tags** targeting `v*`. Configure it so only authorized users can push release tags.

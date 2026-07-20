@@ -1,45 +1,43 @@
-# RT-DAD — Design & detection rationale
+# RT-DAD — Design & Detection Rationale
 
-Why the detector behaves the way it does. For build/run/operate instructions
-see the [README](../README.md).
+Welcome! This document explains the math and logic behind the anomaly detector. It answers *why* the detector behaves the way it does. 
 
-## Anomaly injection (producer)
+If looking for instructions on how to build, run, or operate the project, please head back to the [README](../README.md).
 
-With probability `--anomaly-probability` per point, the producer emits an
-outlier instead of a normal sample: `mean ± (8..12) * stddev`, sign random.
-This guarantees Z >> 3 once the consumer's window is warm, so injected
-outliers reliably trigger `ANOMALY DETECTED!` (or, if sustained, a regime
-shift — see below).
+## How Anomalies are Injected (The Producer)
 
-## Anomaly detection semantics
+To make sure the detector actually works, a reliable way to test it is needed. This is done by having the producer intentionally inject outliers. 
 
-The detector scores each point **against the window's prior state**
-(evaluate-then-add) — adding the point first would let it inflate its own
-mean/stddev and suppress its own Z-score. A confirmed anomaly (a transient
-spike) is logged/published but **not admitted** to the window
-(anti-poisoning): a burst of one-off outliers cannot drag the reference
-statistics off course.
+Here is how it works:
+Based on the `--anomaly-probability` flag, the producer will randomly decide to emit an outlier instead of a normal data point. When it does, it generates a value that is way outside the norm: `mean ± (8 to 12) * stddev`. 
 
-### Regime shift
+Because this value is so extreme (its Z-score is much greater than 3), the consumer's warm window is practically guaranteed to flag it and trigger an `ANOMALY DETECTED!` alert. If the producer keeps generating these back-to-back, it will trigger a "regime shift" (more on that below).
 
-A single spike is noise; a *sustained, same-direction* run of anomalies is
-evidence the underlying process has genuinely shifted to a new baseline.
-The detector tracks a run of consecutive same-sign anomalies. Once the run
-reaches:
+## How Anomalies are Detected
 
-```
+When a new data point arrives at the consumer, the detector scores it **against the window's prior state**. This is known as "evaluate-then-add." 
+
+Why score *before* adding the point? Because if the massive outlier were added to the window first, it would inflate the window's mean and standard deviation, effectively hiding its own extremity (suppressing its own Z-score).
+
+### Anti-Poisoning
+
+If a point is confirmed as an anomaly (a transient spike), it is logged and published to the anomalies fanout, but it is **not admitted** to the rolling window. This prevents "poisoning": a burst of random, one-off outliers cannot drag the baseline statistics off course.
+
+### Adapting to Change: The Regime Shift
+
+A single massive spike is just noise. But what if a *sustained, same-direction* run of anomalies is seen? That is strong evidence that the underlying system hasn't just glitched, but has genuinely shifted to a new baseline. This is called a **regime shift**.
+
+The detector keeps track of consecutive anomalies that go in the same direction (e.g., all positive or all negative). It considers it a true regime shift when the streak reaches a specific threshold:
+
+```text
 K = max(2, ceil(regime-shift-run-fraction * max-samples))
 ```
 
-(a **fraction of the window**, not an absolute count — a 100-point window
-tolerating a 10-point run is proportionally as sensitive as a 50-point
-window tolerating 5), the detector treats it as a regime shift:
+Notice that this threshold is a **fraction of the window size**, not a hardcoded number. This means a 100-point window that tolerates a 10-point run is exactly as sensitive as a 50-point window that tolerates a 5-point run.
 
-- The window is **reseeded** with the buffered run (`window.reseed(...)`) —
-  the run becomes the new baseline.
-- This is logged as `REGIME SHIFT` (a notice, not an alert) and is **not**
-  published to the anomalies fanout — it marks adaptation, not a fault.
-- An opposite-sign outlier mid-run resets the counter (it's noise breaking
-  up the trend, not a continuation of it).
-- After reseeding, the window may briefly dip below `min-samples` and
-  re-enter warm-up — this is expected, safe behavior.
+**When a regime shift happens, the following steps occur:**
+1. **The window is reseeded:** That run of anomalies is taken and made the new baseline (`window.reseed(...)`).
+2. **A notice is logged:** `REGIME SHIFT` is logged as an informational notice, not a critical alert. It is also **not** published to the anomalies fanout, because this represents the system successfully adapting, not a fault.
+3. **The warm-up resets:** After reseeding, the window might temporarily dip below `min-samples` and re-enter its warm-up phase. This is totally expected and safe behavior.
+
+*Note on streak-breaking:* If a streak of positive anomalies occurs and suddenly a massive negative outlier appears, the streak counter resets. That opposite outlier is treated as noise breaking up the trend, not a continuation of it.

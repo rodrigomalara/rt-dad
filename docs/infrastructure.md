@@ -1,20 +1,22 @@
 # Infrastructure — Start Here
 
-Orientation map for RT-DAD's infrastructure. Read this first, then jump to the
-task-specific doc:
+Welcome to the RT-DAD infrastructure! This document is the orientation map. It provides a high-level understanding of how the systems are put together. 
 
-- **[setup.md](setup.md)** — stand up infra + wire the CI/CD pipeline from zero.
-- **[pipeline-operations.md](pipeline-operations.md)** — day-2: deploy, rollback, access, observability, footguns.
-- **[observability.md](observability.md)** — what RT-DAD measures, the signal inventory (metrics/logs/dashboards), and gaps.
+Once the mental model from this page is clear, specific guides can be found depending on the required task:
 
-Step-by-step bootstrap commands live in the runbooks
-(`docs/runbooks/`); these docs carry the **mental model** and link out to them.
+- **[setup.md](setup.md)** — Use this when standing up the infrastructure and wiring the CI/CD pipeline from scratch.
+- **[pipeline-operations.md](pipeline-operations.md)** — Use this for day-to-day tasks: deploying, rolling back, accessing the cluster, checking observability, and avoiding common pitfalls.
+- **[observability.md](observability.md)** — Use this to understand what metrics are measured, where to find logs and dashboards, and what observability gaps still exist.
 
-## Topology
+If looking for step-by-step commands to bootstrap the environment, they can be found in the `docs/runbooks/` folder. This page focuses on the "big picture."
 
-One environment today: **staging**, region **us-west-2**, account **007374813645**.
+## Cloud Topology
 
-```
+Currently, a single environment is run: **staging**. It lives in the AWS **us-west-2** region, under account **007374813645**.
+
+Here is a visual summary of how code flows from GitHub into AWS:
+
+```text
  GitHub PR ── infra.yml ─────► terraform plan (read-only, OIDC plan role)
  push main ── ci.yml ────────► build+test ─► publish images ──► ECR (sha-<7>)
  tag v*.*.* ─ release.yml ───► retag ECR :vX.Y.Z + publish rtdad-common
@@ -35,49 +37,49 @@ One environment today: **staging**, region **us-west-2**, account **007374813645
                                        prometheus :30909, rabbitmq :30672
 ```
 
-## Terraform layout
+## How Terraform is Organized
 
-Root module `infra/envs/staging/` composes six modules in `infra/modules/`:
+The Terraform code is structured around a root module at `infra/envs/staging/`, which pieces together six smaller, reusable modules located in `infra/modules/`:
 
-| Module | Builds |
+| Module | What it Builds |
 | --- | --- |
-| `vpc` | VPC `10.20.0.0/16`, 2 AZs, public + private subnets |
-| `eks` | EKS 1.31, single spot `t3.medium` node group, IP-whitelisted NodePort SG, deploy-role access entry (edit on `rtdad` ns) |
-| `ecr` | `rtdad-producer` + `rtdad-consumer` repositories |
-| `addons` | EBS CSI (gp3), RabbitMQ, Prometheus/Grafana, External Secrets Operator |
-| `secrets` | Secrets Manager secret + read policy |
-| `github-oidc` | Three repo-trusted OIDC roles: plan / deploy / publish |
+| `vpc` | The VPC (`10.20.0.0/16`) spanning 2 Availability Zones, with both public and private subnets. |
+| `eks` | The EKS 1.31 cluster. It uses a single spot `t3.medium` node group, an IP-whitelisted NodePort Security Group, and grants the deploy-role access to edit the `rtdad` namespace. |
+| `ecr` | The container registries for the `rtdad-producer` and `rtdad-consumer` services. |
+| `addons` | Essential cluster add-ons: EBS CSI (for gp3 volumes), RabbitMQ, Prometheus/Grafana, and the External Secrets Operator. |
+| `secrets` | The AWS Secrets Manager secret and the policy that allows the cluster to read it. |
+| `github-oidc` | Three OIDC roles trusted by the GitHub repository: one for planning, one for deploying, and one for publishing. |
 
-State in S3 (`backend.tf`, key `rtdad/staging/terraform.tfstate`), **S3-native
-locking** (`use_lockfile = true`, no DynamoDB). Backend `bucket`/`region` are
-passed at `init` time, never committed.
+**Where is the state?**
+Terraform state is stored in S3 (configured in `backend.tf` under the key `rtdad/staging/terraform.tfstate`). Terraform's native S3 locking is relied upon (`use_lockfile = true`), meaning a separate DynamoDB table is not needed. Note that the backend `bucket` and `region` are passed dynamically during `terraform init` and are never committed to version control.
 
-## The one non-obvious decision: hybrid plan-in-CI / apply-local
+## Approach: Plan in CI, Apply Locally
 
-No admin-capable role is trusted by this **public** repo. Therefore:
+One non-obvious decision made is how Terraform is run. Since the GitHub repository is public, it was chosen not to trust it with a role capable of making administrative changes to the AWS account.
 
-- **`terraform apply` runs locally** on the operator's laptop under SSO admin.
-- **CI only runs read-only `terraform plan`** (`infra.yml`, on `infra/**` PRs).
+Because of this:
+- **`terraform apply` always runs locally** on an operator's machine, using local admin SSO credentials.
+- **CI only runs read-only `terraform plan`** checks (via `infra.yml` on pull requests modifying the `infra/` folder).
 
-The very first local apply *creates* the CI OIDC roles — CI cannot bootstrap
-itself. See [setup.md](setup.md).
+This means when setting up the environment for the first time, the initial apply must be run manually. That first apply creates the CI OIDC roles that the pipeline will use later. For more details on this bootstrap process, check out [setup.md](setup.md).
 
-## Identity (three distinct credentials, kept separate by design)
+## Managing Identities and Credentials
 
-| Credential | Principal | Mechanism | Scope |
+Three distinct sets of credentials are used, kept strictly separate by design. It is assumed that every log line produced by GitHub Actions is visible to the world, so security relies on OIDC trust conditions and manual environment approvals, rather than trying to hide account IDs or regions.
+
+| Credential | Who Uses It | Mechanism | What It Can Do |
 | --- | --- | --- | --- |
-| Dev admin | operator laptop | SSO / local admin | full `terraform apply` |
-| Pipeline plan | GitHub Actions | OIDC, no keys | read-only |
-| Pipeline deploy | GitHub Actions | OIDC, no keys | ECR push + EKS deploy (`rtdad` ns) |
-| Pipeline publish | GitHub Actions | OIDC, no keys | ECR push (build/release images) |
+| Dev admin | Operator laptop | SSO / local admin | Can run full `terraform apply` locally. |
+| Pipeline plan | GitHub Actions | OIDC (no keys stored) | Read-only access to generate plans. |
+| Pipeline deploy | GitHub Actions | OIDC (no keys stored) | Can push to ECR and deploy to EKS (restricted to the `rtdad` namespace). |
+| Pipeline publish | GitHub Actions | OIDC (no keys stored) | Can push build and release images to ECR. |
 
-Assume every Actions log line is world-readable. Security rests on OIDC trust
-conditions + environment approval, **not** on hiding account ID / region / ARN.
+## Quick File Glossary
 
-## Glossary of files
+If wondering where everything lives, here's a quick map:
 
-- `infra/` — Terraform (root `envs/staging`, reusable `modules/`).
-- `.github/workflows/` — `ci.yml`, `infra.yml`, `deploy.yml`, `release.yml`.
-- `deploy/helm/rtdad/` — Helm chart; `values-staging.yaml` overrides.
-- `docs/runbooks/` — one-time bootstrap checklists (AWS + GitHub).
-- `scripts/` — `aws-bootstrap.sh`, `github-bootstrap.sh`, `ci-smoke.sh`.
+- `infra/` — All Terraform code. The root environment is in `envs/staging/`, and reusable components are in `modules/`.
+- `.github/workflows/` — The CI/CD pipelines: `ci.yml`, `infra.yml`, `deploy.yml`, and `release.yml`.
+- `deploy/helm/rtdad/` — The Helm chart used for deployments. Look at `values-staging.yaml` for environment overrides.
+- `docs/runbooks/` — Checklists for one-time manual bootstrapping tasks (like setting up AWS and GitHub).
+- `scripts/` — Helper scripts like `aws-bootstrap.sh`, `github-bootstrap.sh`, and `ci-smoke.sh`.
